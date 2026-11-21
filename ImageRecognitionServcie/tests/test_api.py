@@ -36,6 +36,7 @@ def test_readyz_ready(client: TestClient) -> None:
         "workers": 1,
         "workers_ready": 1,
         "langs": ["en", "pl"],
+        "delivery": "response",
     }
 
 

@@ -22,7 +22,7 @@ uv run ruff check src tests examples scripts
 uv run ruff format src tests examples scripts
 uv run mypy                                      # strict, src only
 uv run python scripts/loadtest.py img.png -c 16 -n 100   # throughput / latency
-start-tester.bat                                 # one-click: start service + open HTML tester
+start-tester.bat                                 # one-click: receiver + service (callback mode) + HTML tester; TESTER_MODE=sync for sync
 ```
 
 Set `OCR_MODEL_DIR=models` for the e2e tests to reuse the local weights. CI (`.github/workflows/ci.yml`) runs ruff, mypy and pytest, then builds the Docker image and smoke-tests it with `--network none`. There is no Docker on the dev machine, so the Dockerfiles are only validated in CI.
@@ -51,6 +51,6 @@ Request path: `middleware.py` (body size limit, request id, access log, HTTP met
 - **Model choice is explicit:** setting `OCR_PADDLE_DET_MODEL` / `OCR_PADDLE_REC_MODEL` bypasses PaddleOCR's lang-based selection; `lang="pl"` alone would pick the heavier PP-OCRv6 medium. Defaults: `PP-OCRv5_mobile_det` + `latin_PP-OCRv5_mobile_rec` (covers pl + en).
 - **Use processes, not threads:** threads barely scale because of GIL contention. Measured locally: thread pool 4×2 = 0.17 img/s vs processes 8×1 = 0.37 img/s. Don't move OCR back into the API process.
 - **Process-mode tests:** tests using real worker processes must use an importable engine (`tests/fake_engine.py:ProcessFakeEngine`, behaviour driven by image width/env vars), not lambdas. `tests/conftest.py:FakeEngine` + `engine_factory` covers the in-process path.
-- **CORS:** off by default; `start-tester.bat` sets `OCR_CORS_ORIGINS=*` so the `file://` tester page can call the API.
+- **Tester:** `start-tester.bat` starts `examples/callback_receiver.py` (127.0.0.1:9000, open CORS) and the service with `OCR_CALLBACK_URL` + `OCR_CORS_ORIGINS=*`; `tools/ocr-tester.html` reads the mode from `/readyz` (`delivery`), sends `X-Request-ID` and on 202 polls the receiver `GET /results/{request_id}`. CORS is off by default in the service.
 - **Line endings:** `.gitattributes` forces LF, except CRLF for `.bat`/`.cmd`. Keep `start-tester.bat` CRLF.
 - **Dependencies:** `uv.lock` uses `exclude-newer` (no releases younger than ~2 weeks). PaddleX pulls `opencv-contrib-python`; don't add another OpenCV distribution.

@@ -80,6 +80,7 @@ async def readyz(service: Annotated[OcrService, Depends(get_service)]) -> Any:
         workers=service.capacity,
         workers_ready=service.backend.ready_workers,
         langs=sorted(service.supported_langs),
+        delivery="callback" if service.settings.callback_url else "response",
     )
 
 

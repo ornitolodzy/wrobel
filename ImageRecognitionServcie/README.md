@@ -11,14 +11,25 @@ Działa w całości na własnym sprzęcie, bez zewnętrznych API. Wagi modeli po
 
 ## Najszybszy test (Windows)
 
-Kliknij dwukrotnie **`start-tester.bat`**. Skrypt:
+Kliknij dwukrotnie **`start-tester.bat`**. Skrypt testuje cały przepływ w **trybie callback**:
 
 1. instaluje zależności, jeśli trzeba;
-2. uruchamia serwis w oknie „OCR serwis”;
-3. czeka na załadowanie modelu;
-4. otwiera stronę [`tools/ocr-tester.html`](tools/ocr-tester.html).
+2. uruchamia przykładowy odbiornik callbacków w oknie „OCR odbiornik callbackow” (port 9000);
+3. uruchamia serwis w oknie „OCR serwis” z `OCR_CALLBACK_URL` wskazującym na odbiornik i tokenem `tester-token`;
+4. czeka, aż oba wystartują;
+5. otwiera stronę [`tools/ocr-tester.html`](tools/ocr-tester.html).
 
-Na stronie wybierz, przeciągnij albo wklej (Ctrl+V) zrzut ekranu i kliknij „Wyślij do OCR”. Zobaczysz rozpoznany tekst, ramki na obrazie i pełną odpowiedź JSON. Zamknięcie okna „OCR serwis” zatrzymuje serwis. Pierwsze uruchomienie trwa dłużej, bo pobiera zależności i ok. 20 MB wag modelu.
+Na stronie wybierz, przeciągnij albo wklej (Ctrl+V) zrzut ekranu i kliknij „Wyślij do OCR”. Strona pokazuje przebieg:
+
+1. wysłano zdjęcie;
+2. serwis odpowiedział `202`;
+3. callback dotarł do odbiornika (z czasem i informacją o sprawdzonym tokenie).
+
+Potem wyświetla rozpoznany tekst, ramki na obrazie, odpowiedź serwisu i JSON callbacku.
+
+- **Tryb synchroniczny:** przed uruchomieniem wpisz `set TESTER_MODE=sync`. Strona sama wykrywa tryb przez `/readyz`.
+- **Zatrzymanie:** zamknij oba okna.
+- **Pierwsze uruchomienie** trwa dłużej, bo pobiera zależności i ok. 20 MB wag modelu.
 
 ## Spis treści
 
@@ -207,6 +218,8 @@ $env:OCR_CALLBACK_URL = "http://localhost:9000/ocr-results"; uv run ocr-service
 curl.exe -H "X-Request-ID: test-1" -F "file=@zrzut.png" http://localhost:8000/v1/ocr   # -> 202
 curl.exe http://localhost:9000/results/test-1                                          # wynik
 ```
+
+Odbiornik zwraca `{"received_at": "...", "authorized": true|false, "payload": {...callback...}}`. `authorized` znaczy, że sprawdził token z `RECEIVER_TOKEN` (musi być równy `OCR_CALLBACK_TOKEN`).
 
 Bez `OCR_CALLBACK_URL` serwis działa synchronicznie: wynik wraca w odpowiedzi `200`.
 

@@ -90,3 +90,7 @@ class ReadyResponse(BaseModel):
     workers: int
     workers_ready: int
     langs: list[str]
+    delivery: str = Field(
+        description="`response` (result in the HTTP response) or `callback` (POSTed to a URL).",
+        examples=["response"],
+    )

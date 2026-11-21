@@ -183,6 +183,11 @@ def test_min_confidence_filters_blocks(
     assert body["text"] == ("Zażółć gęślą jaźń" if expected_blocks else "")
 
 
+def test_readyz_reports_callback_delivery(make_client: ClientFactory) -> None:
+    client = callback_client(make_client, Receiver())
+    assert client.get("/readyz").json()["delivery"] == "callback"
+
+
 def test_callback_payload_is_documented(make_client: ClientFactory) -> None:
     client = make_client()
     schemas = client.get("/openapi.json").json()["components"]["schemas"]
