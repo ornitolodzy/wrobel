@@ -30,7 +30,7 @@ class TraceHooks:
             "status": "ok",
         }
         if calls := usage.drain():
-            entry["llm"] = calls
+            entry["calls"] = calls
         self.trace.append(entry)
 
     @hook_impl
@@ -42,7 +42,7 @@ class TraceHooks:
                 "ms": round((time.perf_counter() - started) * 1000, 2),
                 "status": "error",
                 "error": f"{type(error).__name__}: {error}",
-                "llm": usage.drain(),
+                "calls": usage.drain(),
             }
         )
 

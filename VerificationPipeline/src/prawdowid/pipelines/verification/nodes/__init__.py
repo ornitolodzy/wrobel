@@ -8,6 +8,8 @@ from .policy import decide, decide_all
 from .queries import build_queries
 from .retrieval import retrieve_rerank
 from .stance import judge_stance
+from .web_evidence import fetch_web_evidence, merge_evidence
+from .web_search import web_search
 
 __all__ = [
     "normalize",
@@ -20,4 +22,7 @@ __all__ = [
     "decide_all",
     "compose_answer",
     "assemble",
+    "web_search",
+    "fetch_web_evidence",
+    "merge_evidence",
 ]

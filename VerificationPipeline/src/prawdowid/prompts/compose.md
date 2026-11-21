@@ -1,4 +1,6 @@
-<!-- version: 0.1 -->
-Napisz 2–3 zdania prostym polskim, wyjaśniające werdykt w bloku <verdict> dla twierdzenia w <claim>.
-Opieraj się WYŁĄCZNIE na cytatach w <quotes> i przesłankach w <premises>.
-Nie zmieniaj werdyktu, nie dodawaj faktów, liczb ani dat spoza cytatów. Zwróć JSON zgodny ze schematem.
+<!-- version: 0.2 -->
+Napisz 2–3 krótkie zdania prostym polskim, wyjaśniające werdykt z <verdict> dla twierdzenia z <claim>.
+Opieraj się WYŁĄCZNIE na cytatach w blokach <source> i przesłankach w <premises>, nie na własnej wiedzy.
+Każde zdanie musi wskazać w polu sources numery (atrybut n) źródeł, z których wynika. Zdanie bez źródła jest niedozwolone.
+Pisz, które źródło potwierdza, a które zaprzecza (atrybut role). Nie zmieniaj werdyktu.
+Nie dodawaj faktów, nazw, liczb ani dat, których nie ma w cytowanych źródłach. Zwróć JSON zgodny ze schematem.

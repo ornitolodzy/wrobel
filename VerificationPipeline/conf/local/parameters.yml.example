@@ -13,3 +13,11 @@ llm:
     # NLI (stance):  {provider: nli, nli_model: MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7, min_score: 0.7}
     #
     # Note: role overrides are merged key by key with conf/base, so always set `model` explicitly.
+
+web_search:
+  provider: ddgs            # no key; for deployment prefer searxng (self-host)
+  backend: bing             # ddgs engine; duckduckgo rate-limits quickly
+  # site_queries: [gov.pl]  # brave/searxng: extra query limited to official sources
+  # provider: searxng
+  # api_base: http://localhost:8080
+  # provider: brave         # needs BRAVE_API_KEY in .env

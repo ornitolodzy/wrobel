@@ -23,6 +23,7 @@ retrieval = [
     "pgvector>=0.3",
     "sentence-transformers>=3.0",
 ]
+websearch = ["ddgs>=9", "httpx>=0.27", "trafilatura>=2"]
 nli = ["transformers>=4.44", "torch>=2.3"]
 ingestion = ["httpx>=0.27", "trafilatura>=1.12", "datasketch>=1.6"]
 dev = ["pytest>=8", "kedro-viz>=10", "ruff>=0.6", "httpx>=0.27"]

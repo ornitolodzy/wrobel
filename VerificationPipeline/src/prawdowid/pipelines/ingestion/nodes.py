@@ -8,17 +8,16 @@ from __future__ import annotations
 
 import logging
 
-import yaml
-
-from prawdowid.runtime import PROJECT_ROOT
+from prawdowid.catalog import load_catalog, seed_urls
 
 log = logging.getLogger(__name__)
 
 
 def load_source_catalog(ingestion_params: dict) -> list[dict]:
-    path = PROJECT_ROOT / ingestion_params["sources_path"]
-    sources = yaml.safe_load(path.read_text())["sources"]
-    return [s for s in sources if s.get("active", True)]
+    """One row per seed URL (start pages from the catalog), with its publisher and type."""
+    catalog = load_catalog(ingestion_params["sources_path"])
+    return [{"url": url, "publisher": src["publisher"], "type": src["type"]}
+            for url, src in seed_urls(catalog)]
 
 
 def fetch_documents(sources: list[dict]) -> list[dict]:

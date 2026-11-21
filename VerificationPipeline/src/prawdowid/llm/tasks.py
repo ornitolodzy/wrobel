@@ -46,8 +46,13 @@ class StanceOut(BaseModel):
     injection_suspected: bool = False
 
 
+class ExplainSentence(BaseModel):
+    text: str
+    sources: list[int]  # numbers of sources in <sources> that back this sentence
+
+
 class ExplainOut(BaseModel):
-    explanation: str
+    sentences: list[ExplainSentence]
 
 
 # ---------- helpers ----------
@@ -117,10 +122,15 @@ def judge_stance_llm(claim: Claim, evidence: list[Evidence], llm_params: dict) -
     ]
 
 
-def explain_llm(claim: Claim, verdict: Verdict, llm_params: dict) -> str:
-    quotes = "\n".join(f"- {s.quote}" for s in verdict.evidence)
+def explain_llm(claim: Claim, verdict: Verdict, llm_params: dict) -> list[ExplainSentence]:
+    sources = "\n".join(
+        f'<source n="{r.n}" role="{r.role}" publisher="{_escape(r.publisher)}"'
+        f'{f" date={chr(34)}{r.published_at:%Y-%m-%d}{chr(34)}" if r.published_at else ""}>'
+        f"{_escape(r.quote)}</source>"
+        for r in verdict.sources
+    )
     user = (
         f"<claim>{_escape(claim.text)}</claim>\n<verdict>{verdict.label}</verdict>\n"
-        f"<premises>{_escape(' '.join(verdict.reasons))}</premises>\n<quotes>\n{_escape(quotes)}\n</quotes>"
+        f"<premises>{_escape(' '.join(verdict.reasons))}</premises>\n<sources>\n{sources}\n</sources>"
     )
-    return _call("compose", llm_params, user, ExplainOut).parsed.explanation
+    return _call("compose", llm_params, user, ExplainOut).parsed.sentences

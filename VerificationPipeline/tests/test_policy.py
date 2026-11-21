@@ -63,6 +63,14 @@ def test_conflicting_strong_sources_withhold():
     e = {"a": ev("a", "primary"), "b": ev("b", "factcheck")}
     v = decide(CLAIM, [st("a", "supports"), st("b", "refutes")], e, NOW)
     assert v.label == "brak_dowodow" and v.warnings
+    # both sides are shown, numbered: confirming first, then refuting
+    assert [(s.n, s.role, s.chunk_id) for s in v.sources] == [(1, "potwierdza", "a"), (2, "zaprzecza", "b")]
+
+
+def test_sources_carry_url_and_quote():
+    e = {"a": ev("a", "primary")}
+    v = decide(CLAIM, [st("a", "supports")], e, NOW)
+    assert v.sources[0].url == "https://example.org/a" and v.sources[0].quote == "tekst"
 
 
 def test_archive_warning():

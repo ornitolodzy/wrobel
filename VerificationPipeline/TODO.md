@@ -9,3 +9,5 @@
 - Wróbel
 - jed
 - posiadaj filtr na głupie pytania
+
+i

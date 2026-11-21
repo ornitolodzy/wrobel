@@ -47,6 +47,14 @@ CLAIMS = {"claims": [{"text": "MSZ wysłało pismo z żądaniami wobec Czech.", 
                       "entities": ["MSZ", "Czechy"]}]}
 
 
+def explain(*sentences):
+    """sentences: (text, [source numbers])"""
+    return {"sentences": [{"text": t, "sources": src} for t, src in sentences]}
+
+
+QUOTE = "pismo w sprawie Czech nie pochodzi z MSZ"
+
+
 def stance(label, quote):
     return {"items": [{"source_id": 1, "label": label, "quote": quote, "rationale": "r"}]}
 
@@ -58,30 +66,34 @@ def run(params, **scripted):
 
 def test_refuting_primary_source_gives_false_with_explanation(params):
     r = run(params, claims=CLAIMS, stance=stance("refutes", "pismo w sprawie Czech nie pochodzi z MSZ"),
-            explain={"explanation": "Komunikat MSZ wskazuje, że pismo jest fałszywe."})
+            explain=explain(("Komunikat MSZ zaprzecza, że pismo pochodzi z MSZ.", [1])))
     assert r.status == "ok"
     v = r.verdicts[0]
     assert v.label == "falszywe" and v.evidence[0].chunk_id == "k1"
-    assert "Interpretacja systemu" in r.answer
+    src = v.sources[0]
+    assert (src.n, src.role, src.publisher) == (1, "zaprzecza", "MSZ")
+    assert src.url == "https://www.gov.pl/web/dyplomacja/x" and src.quote == QUOTE
+    assert "https://www.gov.pl/web/dyplomacja/x" in r.answer and f"„{QUOTE}”" in r.answer
+    assert "Komunikat MSZ zaprzecza, że pismo pochodzi z MSZ. [1]" in r.answer
 
 
 def test_fabricated_quote_is_dropped(params):
     r = run(params, claims=CLAIMS, stance=stance("supports", "MSZ potwierdza żądania wobec Czech"),
-            explain={"explanation": "x"})
+            explain=explain(("x", [1])))
     assert r.verdicts[0].label == "brak_dowodow"
 
 
 def test_explanation_with_unsupported_number_falls_back_to_template(params):
     r = run(params, claims=CLAIMS, stance=stance("refutes", "pismo w sprawie Czech nie pochodzi z MSZ"),
-            explain={"explanation": "W 2019 roku 5 ambasad to potwierdziło."})
+            explain=explain(("W 2019 roku 5 ambasad to potwierdziło.", [1])))
     assert "Interpretacja systemu" not in r.answer
-    events = [c.get("event") for t in r.trace for c in t.get("llm", [])]
+    events = [c.get("event") for t in r.trace for c in t.get("calls", [])]
     assert "explanation_rejected" in events
 
 
 def test_llm_calls_recorded_in_trace(params):
-    r = run(params, claims=CLAIMS, stance=stance("irrelevant", "x"), explain={"explanation": "x"})
-    calls = {t["step"]: t["llm"] for t in r.trace if "llm" in t}
+    r = run(params, claims=CLAIMS, stance=stance("irrelevant", "x"), explain=explain(("x", [1])))
+    calls = {t["step"]: t["calls"] for t in r.trace if "calls" in t}
     assert calls["extract_claims"][0]["model"] == "fake-model"
     assert calls["extract_claims"][0]["prompt_version"] == "0.2"
     assert "judge_stance" in calls
@@ -90,7 +102,7 @@ def test_llm_calls_recorded_in_trace(params):
 def test_claims_llm_failure_falls_back_to_whole_text(params):
     r = run(params, claims=LLMError("timeout"), stance=stance("irrelevant", "x"))
     assert r.status == "ok" and len(r.claims) == 1
-    events = [c.get("event") for t in r.trace for c in t.get("llm", [])]
+    events = [c.get("event") for t in r.trace for c in t.get("calls", [])]
     assert "fallback_rule_based" in events
 
 
@@ -115,3 +127,28 @@ def test_nli_ignores_inherited_llm_model_name():
 
     p = NLIStanceProvider({"provider": "nli", "model": "anthropic/claude-opus-5-5"})
     assert p.model_name == DEFAULT_MODEL
+
+
+@pytest.mark.parametrize("bad", [
+    explain(("Pismo jest fałszywe.", [])),                       # sentence without a source
+    explain(("Pismo jest fałszywe.", [7])),                      # source the model was not given
+    explain(("Pismo jest fałszywe.", [1]), ("Tak twierdzi też PAP.", [])),
+])
+def test_explanation_must_cite_given_sources(params, bad):
+    r = run(params, claims=CLAIMS, stance=stance("refutes", QUOTE), explain=bad)
+    assert r.verdicts[0].label == "falszywe"
+    assert "Interpretacja systemu" not in r.answer          # template only
+    assert "Źródła:" in r.answer and "[1] zaprzecza" in r.answer
+
+
+def test_publication_date_of_cited_source_is_allowed_in_explanation(params):
+    r = run(params, claims=CLAIMS, stance=stance("refutes", QUOTE),
+            explain=explain(("Komunikat MSZ z 2026-11-01 zaprzecza pismu.", [1])))
+    assert "Interpretacja systemu" in r.answer
+
+
+def test_no_evidence_says_no_sources(params):
+    r = run(params, claims=CLAIMS, stance=stance("irrelevant", "x"), explain=explain(("x", [1])))
+    v = r.verdicts[0]
+    assert v.label == "brak_dowodow" and v.sources == []
+    assert "nie znaleziono źródeł" in r.answer

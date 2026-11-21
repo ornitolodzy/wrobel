@@ -43,6 +43,20 @@ Each LLM role (`claims`, `stance`, `compose`) is configured separately in `conf/
 Any LiteLLM model string works (`anthropic/claude-opus-5-5`, `mistral/mistral-large-latest`,
 `ollama/bielik`, `openai/<name>` + `api_base` for vLLM). Details: `docs/adr/0001-modele-ai.md`.
 
+## Web search
+1. `web_search`: links per factual claim (`web_results` in the API). Catalog domains
+   (`conf/base/sources.yml`) are ranked first and labelled.
+2. `fetch_web_evidence`: the top `web_fetch.top_n_pages` pages are downloaded (public IPs only,
+   size/time limits, robots.txt), text extracted with trafilatura, the best-matching chunks become
+   evidence and go through stance -> citation validator -> policy like corpus evidence.
+3. Pages outside the catalog get `source_type: web` (weight 0.3, below `min_weight_to_count`):
+   they are shown as sources but can never decide a verdict alone. Near-duplicate pages share a
+   `dup_group`, so reprints are not independent confirmations.
+
+Provider in `web_search.provider`: `mock` (default, no network), `ddgs` (DuckDuckGo, no key),
+`searxng` (self-hosted, recommended for deployment), `brave` (`BRAVE_API_KEY`).
+Install: `pip install -e ".[websearch]"`.
+
 ## Status
 Real: normalization + PII masking, query building, verdict policy, citation validator, trace
 (incl. model/tokens/cost per call), LLM layer (LiteLLM/NLI), eval harness, API.
