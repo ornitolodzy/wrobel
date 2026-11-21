@@ -221,3 +221,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# PRAWDOWID gateway – lokalna baza (audit log, zapis sprawdzeń)
+data/
+*.db
