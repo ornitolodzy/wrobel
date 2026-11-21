@@ -116,6 +116,9 @@ class Settings(BaseSettings):
 
     # --- Security ----------------------------------------------------------
     api_key: SecretStr | None = None
+    # Browser origins allowed to call the API (CORS), e.g. "*" for the local test page.
+    # Empty = CORS disabled (the default for service-to-service use).
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     # --- Preprocessing -----------------------------------------------------
     preprocess_upscale_target: int = Field(default=1280, ge=0)
@@ -144,6 +147,13 @@ class Settings(BaseSettings):
         if not langs:
             raise ValueError("at least one language is required")
         return langs
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, value: object) -> list[str]:
+        if isinstance(value, str):
+            return [o.strip() for o in value.split(",") if o.strip()]
+        return list(value) if value else []  # type: ignore[call-overload]
 
     @field_validator("api_key", "model_dir", mode="before")
     @classmethod

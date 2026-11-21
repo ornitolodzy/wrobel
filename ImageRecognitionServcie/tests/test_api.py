@@ -269,3 +269,27 @@ def test_probes_do_not_require_api_key(secured: TestClient) -> None:
     assert secured.get("/healthz").status_code == 200
     assert secured.get("/readyz").status_code == 200
     assert secured.get("/metrics").status_code == 200
+
+
+# ---------------------------------------------------------------- CORS
+def test_cors_disabled_by_default(client: TestClient) -> None:
+    response = client.get("/healthz", headers={"Origin": "null"})
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_cors_allows_local_test_page(make_client: ClientFactory) -> None:
+    client = make_client(cors_origins="*")
+    preflight = client.options(
+        "/v1/ocr",
+        headers={
+            "Origin": "null",  # a page opened from file://
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-api-key",
+        },
+    )
+    assert preflight.status_code == 200
+    response = client.post(
+        "/v1/ocr", files={"file": ("a.png", b"not an image")}, headers={"Origin": "null"}
+    )
+    assert response.status_code == 415  # errors are readable by the page too
+    assert response.headers["access-control-allow-origin"] == "*"

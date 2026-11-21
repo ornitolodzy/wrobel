@@ -9,6 +9,17 @@ Działa w całości na własnym sprzęcie, bez zewnętrznych API. Wagi modeli po
 
 ---
 
+## Najszybszy test (Windows)
+
+Kliknij dwukrotnie **`start-tester.bat`**. Skrypt:
+
+1. instaluje zależności, jeśli trzeba;
+2. uruchamia serwis w oknie „OCR serwis”;
+3. czeka na załadowanie modelu;
+4. otwiera stronę [`tools/ocr-tester.html`](tools/ocr-tester.html).
+
+Na stronie wybierz, przeciągnij albo wklej (Ctrl+V) zrzut ekranu i kliknij „Wyślij do OCR”. Zobaczysz rozpoznany tekst, ramki na obrazie i pełną odpowiedź JSON. Zamknięcie okna „OCR serwis” zatrzymuje serwis. Pierwsze uruchomienie trwa dłużej, bo pobiera zależności i ok. 20 MB wag modelu.
+
 ## Spis treści
 
 1. [Uruchomienie lokalnie (Windows, bez Dockera)](#1-uruchomienie-lokalnie-windows-bez-dockera)
@@ -291,6 +302,7 @@ Konfiguracja odbywa się wyłącznie przez zmienne środowiskowe (prefiks `OCR_`
 | `OCR_MAX_FILE_BYTES` | `10485760` | Maksymalny rozmiar obrazu (10 MiB); limit całego body wynosi ×4/3 + 64 KiB |
 | `OCR_MAX_PIXELS` | `40000000` | Maksymalna liczba pikseli (ochrona przed decompression bomb) |
 | `OCR_API_KEY` | *(puste)* | Gdy ustawione, `/v1/*` wymaga nagłówka `X-API-Key` |
+| `OCR_CORS_ORIGINS` | *(puste)* | Originy przeglądarki z dostępem do API, np. `*` (ustawia je `start-tester.bat` dla strony testowej). Puste = CORS wyłączony |
 | `OCR_PREPROCESS_UPSCALE_TARGET` | `1280` | Obrazy o dłuższym boku poniżej tej wartości są powiększane (`0` = wyłączone) |
 | `OCR_PREPROCESS_MAX_UPSCALE` | `3.0` | Maksymalny współczynnik powiększenia |
 | `OCR_PREPROCESS_DARK_MODE` | `true` | Wykrywanie ciemnego motywu i inwersja kolorów |

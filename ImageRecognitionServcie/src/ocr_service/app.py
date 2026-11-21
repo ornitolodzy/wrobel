@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from ocr_service import __version__
 from ocr_service.api import router, v1
@@ -77,7 +78,15 @@ def create_app(
 
     install_error_handlers(app)
     app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=settings.max_request_bytes)
-    app.add_middleware(RequestContextMiddleware)  # outermost: sees every response
+    app.add_middleware(RequestContextMiddleware)
+    if settings.cors_origins:  # outermost, so error responses carry CORS headers too
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_methods=["GET", "POST"],
+            allow_headers=["*"],
+            expose_headers=["X-Request-ID", "Retry-After"],
+        )
 
     app.include_router(router)
     app.include_router(v1)
