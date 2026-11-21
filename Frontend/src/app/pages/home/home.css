@@ -1,0 +1,318 @@
+:host {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px;
+}
+
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  padding-bottom: 12vh;
+}
+
+/* ---------- Animacja wysłania (View Transitions) ---------- */
+.logo-link {
+  view-transition-name: wrobel-logo;
+  border-radius: 12px;
+}
+
+.prawdowid-search-bar {
+  view-transition-name: wrobel-query;
+}
+
+/* Faza „sending”: „Szukaj” wyjeżdża w prawo i chowa się pod krawędzią paska */
+.sending .prawdowid-search-bar {
+  overflow: hidden;
+}
+
+.sending .prawdowid-search-button {
+  transform: translateX(calc(100% + 16px));
+  transition: transform 260ms cubic-bezier(0.55, 0, 1, 0.45);
+}
+
+.sending .photo-btn,
+.sending .thumb-x,
+.sending .status {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+/* Faza „chat”: logo w lewym górnym rogu (mobile: na środku u góry) */
+.stage.chat {
+  display: block;
+  position: relative;
+  padding-bottom: 0;
+}
+
+.stage.chat .logo-link {
+  position: absolute;
+  z-index: 2; /* nad wzorem i wątkiem rozmowy (który ma górny padding 25dvh) */
+  top: 20px;
+  left: 8px;
+}
+
+.stage.chat app-logo {
+  font-size: 28px;
+}
+
+/* Kreska oddzielająca baner — wjeżdża od prawej, gdy logo doleci do rogu */
+.divider {
+  position: absolute;
+  top: 72px;
+  left: -16px;
+  right: -16px;
+  height: 1px;
+  background: var(--prawdowid-border-light);
+  transform-origin: right center;
+  animation: divider-in 700ms cubic-bezier(0.22, 1, 0.36, 1) 550ms both;
+}
+
+@keyframes divider-in {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* Delikatny wzór tła pod banerem: przesunięta siatka kropek w kolorze wróbla,
+   wyłania się od kreski w dół. Czysty CSS — zero dodatkowych requestów. */
+.pattern {
+  --dot: rgb(122 92 67 / 0.2);
+  position: absolute;
+  top: 73px;
+  left: -16px;
+  right: -16px;
+  bottom: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, var(--dot) 1.2px, transparent 1.7px),
+    radial-gradient(circle, var(--dot) 1.2px, transparent 1.7px);
+  background-size: 28px 28px;
+  background-position:
+    0 0,
+    14px 14px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 160px);
+  mask-image: linear-gradient(to bottom, transparent, #000 160px);
+  animation: pattern-in 900ms ease 800ms both;
+}
+
+@keyframes pattern-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.stage.chat app-chat-thread {
+  position: relative; /* nad wzorem */
+}
+
+/* Owijka: status pod paskiem jest pozycjonowany absolutnie, więc nie przesuwa wyśrodkowania */
+.search-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 680px;
+}
+
+.search-wrap .status {
+  position: absolute;
+  top: calc(100% + 16px);
+  left: 0;
+  right: 0;
+  text-align: center;
+}
+
+/* Mobile: idealne wyśrodkowanie w pionie (bez optycznego podbicia jak na desktopie) */
+@media (max-width: 600px) {
+  .stage {
+    padding-bottom: 0;
+    gap: 28px;
+  }
+  .stage.chat .logo-link {
+    left: 50%;
+    top: 16px;
+    translate: -50% 0;
+  }
+}
+
+/* SIW §7 */
+.prawdowid-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: var(--prawdowid-bg-input);
+  border: var(--prawdowid-input-border-width) solid var(--prawdowid-border-light);
+  border-radius: var(--prawdowid-radius-pill);
+  padding: 4px 6px 4px 20px;
+  width: 100%;
+  max-width: 680px;
+}
+
+.prawdowid-search-bar:focus-within {
+  border-color: var(--prawdowid-accent-hover);
+}
+
+.lupa {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--prawdowid-accent-hover);
+}
+
+input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--prawdowid-fs-input);
+  padding: 8px 0;
+  outline: none;
+}
+
+input::placeholder {
+  color: var(--prawdowid-text-secondary);
+}
+
+input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.prawdowid-search-button {
+  background-color: var(--prawdowid-accent-main);
+  color: var(--prawdowid-text-on-accent);
+  border-radius: var(--prawdowid-radius-pill);
+  padding: 10px 24px;
+  border: none;
+  outline: var(--prawdowid-btn-inset-border);
+  font-size: var(--prawdowid-fs-button);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.prawdowid-search-button:hover,
+.prawdowid-search-button:disabled {
+  background-color: var(--prawdowid-accent-hover);
+}
+
+.prawdowid-search-button:focus-visible {
+  outline: 2px solid var(--prawdowid-accent-main);
+}
+
+.btn-icon {
+  display: none;
+  width: 20px;
+  height: 20px;
+}
+
+/* Przycisk „Dodaj zdjęcie” — po lewej od „Szukaj”.
+   Odstęp do „Szukaj” = prawy padding paska (6px): gap 12px - 6px marginesu. */
+.photo-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-right: -6px;
+  padding: 0;
+  border: none;
+  border-radius: var(--prawdowid-radius-pill);
+  background: transparent;
+  color: var(--prawdowid-accent-hover);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.photo-btn:hover:not([aria-disabled='true']) {
+  background: var(--prawdowid-bg-canvas);
+}
+
+/* aria-disabled zamiast disabled: przycisk dalej łapie klik/tap, żeby pokazać podpowiedź */
+.photo-btn[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.status.hint {
+  color: var(--prawdowid-text-secondary);
+}
+
+.photo-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Miniatura dołączonego zdjęcia */
+.thumb {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 36px;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 10px;
+  display: block;
+}
+
+.thumb-x {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 2px solid var(--prawdowid-bg-input);
+  border-radius: var(--prawdowid-radius-pill);
+  background: var(--prawdowid-text-primary);
+  color: var(--prawdowid-bg-input);
+  cursor: pointer;
+}
+
+.thumb-x svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* Przeciąganie pliku nad stroną */
+.prawdowid-search-bar.dropping {
+  border-style: dashed;
+  border-color: var(--prawdowid-accent-main);
+}
+
+.status.error {
+  color: var(--prawdowid-accent-main);
+}
+
+/* Mobile: „Szukaj” -> okrągły przycisk z lupą, lupa z lewej znika */
+@media (max-width: 600px) {
+  .lupa,
+  .btn-label {
+    display: none;
+  }
+  .btn-icon {
+    display: block;
+  }
+  .prawdowid-search-button {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    flex: none;
+  }
+}
+
+.status {
+  font-size: var(--prawdowid-fs-meta);
+  color: var(--prawdowid-text-secondary);
+  margin: 0;
+}
