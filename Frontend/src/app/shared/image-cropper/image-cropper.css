@@ -1,0 +1,114 @@
+.dlg {
+  border: none;
+  border-radius: 24px;
+  padding: 20px;
+  background: var(--prawdowid-bg-input);
+  color: var(--prawdowid-text-primary);
+  max-width: calc(100vw - 24px);
+}
+
+.dlg::backdrop {
+  background: rgb(31 30 30 / 0.55);
+}
+
+h2 {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.stage {
+  position: relative;
+  width: fit-content;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 12px;
+  line-height: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  background: var(--prawdowid-bg-canvas);
+}
+
+.stage img {
+  display: block;
+  max-width: min(calc(100vw - 64px), 680px);
+  max-height: 62vh;
+  pointer-events: none;
+}
+
+.crop {
+  position: absolute;
+  cursor: move;
+  touch-action: none;
+  outline: 2px solid var(--prawdowid-bg-input);
+  box-shadow: 0 0 0 9999px rgb(31 30 30 / 0.55);
+}
+
+/* Narożniki w stylu „L” — duże pole dotyku, rysowane wewnątrz zaznaczenia */
+.h {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 0 solid var(--prawdowid-bg-input);
+}
+.nw {
+  left: -2px;
+  top: -2px;
+  border-width: 5px 0 0 5px;
+  cursor: nwse-resize;
+}
+.ne {
+  right: -2px;
+  top: -2px;
+  border-width: 5px 5px 0 0;
+  cursor: nesw-resize;
+}
+.sw {
+  left: -2px;
+  bottom: -2px;
+  border-width: 0 0 5px 5px;
+  cursor: nesw-resize;
+}
+.se {
+  right: -2px;
+  bottom: -2px;
+  border-width: 0 5px 5px 0;
+  cursor: nwse-resize;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btn {
+  border-radius: var(--prawdowid-radius-pill);
+  padding: 10px 22px;
+  font-size: var(--prawdowid-fs-button);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.ghost {
+  background: transparent;
+  border: var(--prawdowid-input-border-width) solid var(--prawdowid-border-light);
+}
+
+.ghost:hover {
+  background: var(--prawdowid-bg-canvas);
+}
+
+.primary {
+  background: var(--prawdowid-accent-main);
+  color: var(--prawdowid-text-on-accent);
+  border: none;
+}
+
+.primary:hover,
+.primary:disabled {
+  background: var(--prawdowid-accent-hover);
+}
