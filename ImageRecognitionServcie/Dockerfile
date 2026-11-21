@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
-# ScreenScrapper OCR - CPU image. Model weights are downloaded at build time,
+# ImageRecognitionServcie OCR - CPU image. Model weights are downloaded at build time,
 # the running container never needs internet access.
 #
-#   docker build -t screenscrapper-ocr .
-#   docker run --rm -p 8000:8000 screenscrapper-ocr
+#   docker build -t image-recognition-servcie .
+#   docker run --rm -p 8000:8000 image-recognition-servcie
 
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 ARG UV_VERSION=0.13.7
@@ -45,7 +45,8 @@ ARG OCR_PADDLE_DET_MODEL=PP-OCRv5_mobile_det
 ARG OCR_PADDLE_REC_MODEL=latin_PP-OCRv5_mobile_rec
 ENV OCR_MODEL_DIR=/opt/models \
     OCR_PADDLE_DET_MODEL=${OCR_PADDLE_DET_MODEL} \
-    OCR_PADDLE_REC_MODEL=${OCR_PADDLE_REC_MODEL}
+    OCR_PADDLE_REC_MODEL=${OCR_PADDLE_REC_MODEL} \
+    OCR_PADDLE_ENABLE_MKLDNN=false
 # Downloads the weights and runs a warm-up inference (fails the build if the model is broken).
 RUN /opt/venv/bin/python -m ocr_service.download_models \
  && rm -rf /opt/models/temp /opt/models/locks
@@ -70,7 +71,8 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     OCR_MODEL_DIR=/opt/models \
     OCR_OFFLINE=true \
     OCR_PADDLE_DET_MODEL=${OCR_PADDLE_DET_MODEL} \
-    OCR_PADDLE_REC_MODEL=${OCR_PADDLE_REC_MODEL}
+    OCR_PADDLE_REC_MODEL=${OCR_PADDLE_REC_MODEL} \
+    OCR_PADDLE_ENABLE_MKLDNN=false
 
 USER ocr:ocr
 WORKDIR /home/ocr

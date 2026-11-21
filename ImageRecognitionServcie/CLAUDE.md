@@ -1,4 +1,4 @@
-# CLAUDE.md — ScreenScrapper OCR
+# CLAUDE.md — ImageRecognitionServcie OCR
 
 Local OCR microservice: HTTP in, text from screenshots out (Polish + English). FastAPI + PaddleOCR 3.7 (PP-OCRv5), Python 3.12, managed with uv. Fully offline at runtime: no external APIs, model weights are downloaded once (`./models` locally, baked into the Docker image).
 

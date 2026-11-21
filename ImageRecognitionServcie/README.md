@@ -1,4 +1,4 @@
-# ScreenScrapper OCR
+# ImageRecognitionServcie OCR
 
 Serwis HTTP, który czyta tekst ze zrzutów ekranu (polski + angielski). Wysyłasz obrazek, a serwis wysyła rozpoznany tekst na skonfigurowany adres (callback) albo zwraca go od razu w odpowiedzi.
 
@@ -50,8 +50,8 @@ Jeśli nie masz `uv` w PATH, pisz `python -m uv` zamiast `uv`.
 **Docker** (model jest w obrazie, kontener nie potrzebuje internetu):
 
 ```bash
-docker build -t screenscrapper-ocr .
-docker run -p 8000:8000 -e OCR_CALLBACK_URL=http://twoj-system/ocr-results screenscrapper-ocr
+docker build -t image-recognition-servcie .
+docker run -p 8000:8000 -e OCR_CALLBACK_URL=http://twoj-system/ocr-results image-recognition-servcie
 ```
 
 ---

@@ -47,7 +47,7 @@ class CallbackDispatcher:
         return len(self._tasks)
 
     async def start(self) -> None:
-        headers = {"User-Agent": "screenscrapper-ocr"}
+        headers = {"User-Agent": "image-recognition-servcie"}
         if self.settings.callback_token is not None:
             headers["Authorization"] = f"Bearer {self.settings.callback_token.get_secret_value()}"
         self._client = httpx.AsyncClient(

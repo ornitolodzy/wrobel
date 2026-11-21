@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
-# ScreenScrapper OCR - NVIDIA GPU variant (DRAFT, not tested in CI).
+# ImageRecognitionServcie OCR - NVIDIA GPU variant (DRAFT, not tested in CI).
 #
-#   docker build -f docker/Dockerfile.gpu -t screenscrapper-ocr:gpu .
-#   docker run --rm --gpus all -p 8000:8000 screenscrapper-ocr:gpu
+#   docker build -f docker/Dockerfile.gpu -t image-recognition-servcie:gpu .
+#   docker run --rm --gpus all -p 8000:8000 image-recognition-servcie:gpu
 #
 # Swaps the CPU `paddlepaddle` wheel from uv.lock for `paddlepaddle-gpu` from Paddle's index.
 # Check https://www.paddlepaddle.org.cn/install for the CUDA build matching your driver

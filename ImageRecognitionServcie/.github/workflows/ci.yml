@@ -67,13 +67,13 @@ jobs:
           context: .
           load: true
           push: false
-          tags: screenscrapper-ocr:ci
+          tags: image-recognition-servcie:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Smoke test (no network access in the container)
         run: |
-          docker run -d --name ocr --network none screenscrapper-ocr:ci
+          docker run -d --name ocr --network none image-recognition-servcie:ci
           for i in $(seq 1 60); do
             if docker exec ocr python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"; then
               echo "ready after ${i} attempts"; break

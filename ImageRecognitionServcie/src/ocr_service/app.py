@@ -84,7 +84,7 @@ def create_app(
             logger.info("service stopped")
 
     app = FastAPI(
-        title="ScreenScrapper OCR",
+        title="ImageRecognitionServcie OCR",
         version=__version__,
         description=DESCRIPTION,
         lifespan=lifespan,

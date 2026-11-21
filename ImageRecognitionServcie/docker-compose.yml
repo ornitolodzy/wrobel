@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: screenscrapper-ocr:latest
+    image: image-recognition-servcie:latest
     ports:
       - "8000:8000"
     env_file:
@@ -30,7 +30,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.gpu
-    image: screenscrapper-ocr:gpu
+    image: image-recognition-servcie:gpu
     ports:
       - "8001:8000"
     env_file:
