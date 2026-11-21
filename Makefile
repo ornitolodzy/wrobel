@@ -4,8 +4,8 @@ COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compos
 DC      := $(COMPOSE) -f Infra/docker/docker-compose.yml
 S       ?=
 
-.PHONY: help up start down clean ps logs build config dev-backend dev-frontend \
-        test test-gateway test-scrapper test-pipeline test-ocr test-frontend
+.PHONY: help up start down clean ps logs build config dev-backend dev-frontend graph-up graph-sync \
+        test test-gateway test-scrapper test-pipeline test-ocr test-graph test-frontend
 
 help: ## lista celów
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -40,7 +40,13 @@ dev-backend: ## backend w Dockerze bez frontendu (do pracy z `make dev-frontend`
 dev-frontend: ## Angular dev server :4200, /api i /ws -> gateway :8000
 	cd Frontend && npm ci && npm start
 
-test: test-gateway test-scrapper test-pipeline test-ocr ## testy wszystkich serwisów Pythona
+graph-up: ## ContextGraph + Neo4j (profil graph), API :8100, Browser :7474
+	$(DC) --profile graph up -d --build neo4j context-graph
+
+graph-sync: ## dokumenty z PageScrappera :8002 do grafu :8100
+	cd ContextGraph && python scripts/sync_from_scraper.py --scraper http://127.0.0.1:8002 --graph http://127.0.0.1:8100
+
+test: test-gateway test-scrapper test-pipeline test-ocr test-graph ## testy wszystkich serwisów Pythona
 
 test-gateway:
 	cd APIGateway && python -m pytest
@@ -53,6 +59,9 @@ test-pipeline:
 
 test-ocr:
 	cd ImageRecognitionServcie && uv run pytest
+
+test-graph: ## bez NEO4J_TEST_URI tylko testy jednostkowe (integracyjne czyszczą bazę)
+	cd ContextGraph && python -m pytest
 
 test-frontend:
 	cd Frontend && npm test -- --watch=false

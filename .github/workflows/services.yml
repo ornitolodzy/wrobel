@@ -1,4 +1,4 @@
-name: Serwisy (gateway, scrapper, pipeline, frontend, stack)
+name: Serwisy (gateway, scrapper, pipeline, graph, frontend, stack)
 
 on:
   push:
@@ -21,6 +21,7 @@ jobs:
       scrapper: ${{ steps.f.outputs.scrapper }}
       pipeline: ${{ steps.f.outputs.pipeline }}
       frontend: ${{ steps.f.outputs.frontend }}
+      graph: ${{ steps.f.outputs.graph }}
       infra: ${{ steps.f.outputs.infra }}
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +33,7 @@ jobs:
             scrapper: ["PageScrapper/**", ".github/workflows/services.yml"]
             pipeline: ["VerificationPipeline/**", ".github/workflows/services.yml"]
             frontend: ["Frontend/**", ".github/workflows/services.yml"]
+            graph: ["ContextGraph/**", ".github/workflows/services.yml"]
             infra: ["Infra/**", "docker-compose.yml", "*/Dockerfile", ".github/workflows/services.yml"]
 
   gateway:
@@ -70,6 +72,30 @@ jobs:
       - run: pip install -e ".[llm,retrieval,dev]"
       - run: python -m pytest -m "not live and not db"
 
+  graph:
+    needs: changes
+    if: needs.changes.outputs.graph == 'true'
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: ContextGraph } }
+    services:
+      neo4j:
+        image: neo4j:5.26-community
+        env: { NEO4J_AUTH: neo4j/contextgraph }
+        ports: ["7687:7687"]
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p contextgraph 'RETURN 1'"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      NEO4J_TEST_URI: bolt://127.0.0.1:7687
+      NEO4J_PASSWORD: contextgraph
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: ContextGraph/pyproject.toml }
+      - run: pip install -e ".[dev]"
+      - run: ruff check . && ruff format --check .
+      - run: python -m pytest
+
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
@@ -94,4 +120,6 @@ jobs:
           docker compose config --quiet
           docker compose -f Infra/docker/docker-compose.yml config --quiet
       - name: Build obrazów
-        run: docker compose build api-gateway page-scrapper verification-pipeline frontend
+        run: |
+          docker compose build api-gateway page-scrapper verification-pipeline frontend
+          docker compose --profile graph build context-graph

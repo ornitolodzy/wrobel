@@ -1,0 +1,41 @@
+services:
+  neo4j:
+    image: neo4j:5.26-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-contextgraph}
+      NEO4J_server_memory_heap_max__size: 1G
+    ports:
+      - "127.0.0.1:7474:7474"  # Neo4j Browser
+      - "127.0.0.1:7687:7687"  # Bolt
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#neo4j/}\" 'RETURN 1' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  api:
+    build: .
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-contextgraph}
+      # From the container the host (SSH tunnel to the Bielik / bge-m3 server) is host.docker.internal.
+      EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-none}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-bge-m3}
+      EMBEDDINGS_API_BASE: ${EMBEDDINGS_API_BASE:-http://host.docker.internal:11435}
+      EVENTS_PROVIDER: ${EVENTS_PROVIDER:-none}
+      EVENTS_MODEL: ${EVENTS_MODEL:-bielik}
+      EVENTS_API_BASE: ${EVENTS_API_BASE:-http://host.docker.internal:11435/v1}
+      EVENTS_API_KEY: ${EVENTS_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8100:8100"
+
+volumes:
+  neo4j-data:

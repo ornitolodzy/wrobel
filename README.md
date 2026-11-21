@@ -19,6 +19,7 @@ spięte jednym stackiem Docker Compose i jedną bazą Postgres.
 | [APIGateway/](APIGateway/) | brzeg systemu: walidacja, rate limit, PII, audit log | FastAPI |
 | [VerificationPipeline/](VerificationPipeline/) | twierdzenia → dowody → stanowisko → werdykt (reguły) | Kedro, FastAPI, LiteLLM |
 | [PageScrapper/](PageScrapper/) | pobieranie stron + budowa korpusu ze źródeł | FastAPI, Playwright |
+| [ContextGraph/](ContextGraph/) | graf wiedzy (dokumenty + zdarzenia z Bielika), profil `graph` | FastAPI, Neo4j |
 | [ImageRecognitionServcie/](ImageRecognitionServcie/) | OCR obrazów | FastAPI, PaddleOCR |
 | [Frontend/](Frontend/) | interfejs webowy | Angular 21 SSR |
 | [Infra/](Infra/) | docker compose, proxy, start.sh, Dockerfile pipeline'u | Docker |
@@ -34,6 +35,7 @@ Połączenia są zdefiniowane w jednym miejscu: [Infra/docker/docker-compose.yml
 | APIGateway | PageScrapper | `PAGE_SCRAPPER_URL` |
 | APIGateway | OCR | `IMAGE_RECOGNITION_URL` |
 | PageScrapper | VerificationPipeline `/ingest` | `RAG_INGEST_URL` |
+| PageScrapper | ContextGraph `/ingest/document` | `make graph-sync` ([ContextGraph/README.md](ContextGraph/README.md)) |
 | wszystkie | Postgres | `DATABASE_URL` |
 | Frontend (`ng serve`) | APIGateway `:8000` | [Frontend/proxy.conf.json](Frontend/proxy.conf.json) |
 
@@ -59,6 +61,7 @@ make build S=page-scrapper && make up
 make dev-backend                 # backend w Dockerze...
 make dev-frontend                # ...i Angular z hot reload na :4200 (proxy do gatewaya)
 make test                        # testy serwisów Pythona (lokalnie)
+make graph-up && make graph-sync # ContextGraph (Neo4j) obok stacku + dokumenty ze scrapera
 ```
 
 CI ([.github/workflows/](.github/workflows/)) uruchamia testy tylko dla serwisów zmienionych w danym commicie
