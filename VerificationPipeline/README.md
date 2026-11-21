@@ -30,7 +30,7 @@ docker compose up db                            # Postgres 16 + pgvector + schem
 | `src/prawdowid/pipelines/verification/pipeline.py` | the DAG |
 | `src/prawdowid/llm/` | provider-agnostic LLM layer (LiteLLM, NLI, mock) + the 3 LLM tasks |
 | `src/prawdowid/retrieval/` | `Retriever` interface (verification does not depend on the DB) |
-| `docs/adr/` | decisions: AI models (0001), databases incl. graph (0002) |
+| `docs/adr/` | decisions: AI models (0001), databases incl. graph (0002), citation validator + answer format (0003), RAG index + retriever (0004), context only from the graph (0005) |
 | `src/prawdowid/runtime.py` | `verify(raw, channel)`, the single entry point for every channel |
 | `src/prawdowid/hooks.py` | Kedro hooks = per-step audit trace |
 | `src/prawdowid/pipelines/{eval,ingestion}/` | batch pipelines |
@@ -43,22 +43,24 @@ Each LLM role (`claims`, `stance`, `compose`) is configured separately in `conf/
 Any LiteLLM model string works (`anthropic/claude-opus-5-5`, `mistral/mistral-large-latest`,
 `ollama/bielik`, `openai/<name>` + `api_base` for vLLM). Details: `docs/adr/0001-modele-ai.md`.
 
-## Web search
-1. `web_search`: links per factual claim (`web_results` in the API). Catalog domains
-   (`conf/base/sources.yml`) are ranked first and labelled.
-2. `fetch_web_evidence`: the top `web_fetch.top_n_pages` pages are downloaded (public IPs only,
-   size/time limits, robots.txt), text extracted with trafilatura, the best-matching chunks become
-   evidence and go through stance -> citation validator -> policy like corpus evidence.
-3. Pages outside the catalog get `source_type: web` (weight 0.3, below `min_weight_to_count`):
-   they are shown as sources but can never decide a verdict alone. Near-duplicate pages share a
-   `dup_group`, so reprints are not independent confirmations.
+## Context source
+The verification pipeline does not access the web. Context comes only from the knowledge graph in
+Neo4j, maintained by another team (`retrieval.backend: neo4j`, read-only, `NEO4J_PASSWORD` in env).
+Data contract: `docs/neo4j-kontrakt.md`; decision: `docs/adr/0005-kontekst-tylko-z-grafu.md`.
+Our own Postgres corpus (`ingestion` pipeline) remains as an alternative backend.
 
-Provider in `web_search.provider`: `mock` (default, no network), `ddgs` (DuckDuckGo, no key),
-`searxng` (self-hosted, recommended for deployment), `brave` (`BRAVE_API_KEY`).
-Install: `pip install -e ".[websearch]"`.
+## Corpus (RAG)
+```bash
+docker-compose up -d db                                  # Postgres 16 + pgvector, schema from db/schema.sql
+.venv/bin/kedro run --pipeline ingestion                 # crawl Linki.md sources (+1 level), embed, store
+cat data/ingestion/report.json                           # docs per domain, failures, >=100 docs / >=10 domains
+```
+Set `retrieval.backend: postgres` and `embeddings.provider: ollama` in `conf/local/parameters.yml`.
+Every retrieved chunk carries a `retrieval` trace (dense/sparse ranks, RRF, reranker score, corpus version);
+dropped candidates are listed in the check trace with a reason. Details: `docs/adr/0004-rag-indeks-i-retriever.md`.
+Tests needing the database are marked `db` and skipped when it is not running.
 
 ## Status
 Real: normalization + PII masking, query building, verdict policy, citation validator, trace
 (incl. model/tokens/cost per call), LLM layer (LiteLLM/NLI), eval harness, API.
-Mocked by default (`provider: mock`, `backend: mock`): LLM calls, Postgres retrieval,
-ingestion fetch/chunk/dedup/embed.
+Mocked by default (`provider: mock`, `backend: mock`): LLM calls and retrieval.

@@ -1,5 +1,15 @@
-"""Step 6: answer composition. Template is authoritative (verdict, premises, numbered sources);
-the LLM only adds 2-3 sentences, each tied to source numbers."""
+"""Step 6: answer composition.
+
+Format (per claim):
+    <Lead> <1-2 sentences why, each with [n]>
+    [n] <publisher>: „<title>” (date, source type), what it says / its rating
+        <url>
+    Źródło pierwotne: <publisher> „<headline>” [n], w bazie źródeł od <date>. ...
+    Przesłanki / siła / uwagi
+
+The template is authoritative (lead, sources, premises). The LLM only writes the "why" sentences,
+each tied to source numbers, and the quote kinds decide what it may claim (ADR 0003).
+"""
 
 from __future__ import annotations
 
@@ -7,15 +17,23 @@ import re
 
 from prawdowid.llm import LLMError, is_mock
 from prawdowid.llm import usage
-from prawdowid.models import Claim, Verdict, WebResult
+from prawdowid.models import Claim, SourceRef, Verdict
 
 _NUMBERS = re.compile(r"\d+(?:[.,]\d+)?")
+_RATED = re.compile(r"\bocen", re.I)  # "ocenił", "ocena", "oceniła"...
+_LEAD_WORDS = re.compile(r"^\s*(tak|nie|prawda|fałsz)\s*[.,:!-]+\s*", re.I)
 
 SOURCE_TYPE_PL = {
     "primary": "źródło pierwotne/urzędowe",
     "factcheck": "fact-checking",
     "secondary": "źródło wtórne (media)",
     "web": "strona spoza katalogu, niezweryfikowany wydawca",
+}
+ROLE_PL = {
+    "potwierdza": "potwierdza",
+    "zaprzecza": "zaprzecza",
+    "brak_kontekstu": "brak kontekstu",
+    "podlinkowane": "materiał, do którego odsyła",
 }
 
 
@@ -24,8 +42,9 @@ def _numbers(text: str) -> set[str]:
 
 
 def check_explanation(sentences, verdict: Verdict) -> str | None:
-    """Accept an LLM explanation only if every sentence cites existing sources and every
-    number/date in it appears in the sources it cites. Returns rejection reason or None."""
+    """Accept the LLM's sentences only if each cites sources it was given, its numbers/dates come
+    from those sources, and a claimed rating ("ocenił") rests on a rating quote. Returns the
+    rejection reason or None."""
     refs = {r.n: r for r in verdict.sources}
     if not sentences:
         return "empty explanation"
@@ -34,12 +53,15 @@ def check_explanation(sentences, verdict: Verdict) -> str | None:
             return f"sentence without source: {s.text!r}"
         if unknown := [n for n in s.sources if n not in refs]:
             return f"unknown source numbers {unknown}"
-        allowed = set().union(*(_numbers(refs[n].quote) for n in s.sources))
-        for n in s.sources:
-            if refs[n].published_at:
-                allowed |= _numbers(f"{refs[n].published_at:%Y-%m-%d %d.%m.%Y %Y}")
+        cited = [refs[n] for n in s.sources]
+        allowed = set().union(*(_numbers(q.text) for r in cited for q in r.quotes))
+        for r in cited:
+            if r.published_at:
+                allowed |= _numbers(f"{r.published_at:%Y-%m-%d %d.%m.%Y %Y}")
         if extra := _numbers(s.text) - allowed:
             return f"numbers not in cited sources: {sorted(extra)}"
+        if _RATED.search(s.text) and not any(q.kind == "ocena" for r in cited for q in r.quotes):
+            return "claims a rating without a cited rating label"
     return None
 
 
@@ -57,83 +79,77 @@ def _explain(claim: Claim, verdict: Verdict, llm_params: dict) -> str | None:
         usage.record(role="compose", event="explanation_rejected", reason=reason)
         return None
     return " ".join(
-        f"{s.text.rstrip()} " + "".join(f"[{n}]" for n in dict.fromkeys(s.sources))
+        _LEAD_WORDS.sub("", s.text).rstrip() + " " + "".join(f"[{n}]" for n in dict.fromkeys(s.sources))
         for s in sentences
     )
 
 
-def render_sources(verdict: Verdict) -> list[str]:
+def template_why(verdict: Verdict) -> str:
+    """Deterministic 'why' when there is no (accepted) LLM explanation."""
     if verdict.label == "nie_podlega_weryfikacji":
-        return []
+        return verdict.reasons[0]
     if not verdict.sources:
-        return ["Źródła: nie znaleziono źródeł, które rozstrzygają to twierdzenie."]
-    lines = ["Źródła:"]
+        return "Nie znaleziono źródeł, które rozstrzygają to twierdzenie."
     for r in verdict.sources:
-        date = f"{r.published_at:%Y-%m-%d}, " if r.published_at else ""
-        lines += [
-            f"[{r.n}] {r.role.replace('_', ' ')} · {r.publisher}: „{r.title}” "
-            f"({date}{SOURCE_TYPE_PL[r.source_type]})",
-            f"    {r.url}",
-            f"    cytat: „{r.quote}”",
-        ]
+        rating = next((q for q in r.quotes if q.kind == "ocena"), None)
+        if rating:
+            text = next((q for q in r.quotes if q.kind == "tresc"), None)
+            why = f"{r.publisher} ocenił to twierdzenie jako „{rating.text}”"
+            return why + (f": „{text.text}” [{r.n}]" if text else f" [{r.n}].")
+    return " ".join(verdict.reasons)
+
+
+def render_source(r: SourceRef) -> list[str]:
+    date = f"{r.published_at:%Y-%m-%d}, " if r.published_at else ""
+    via = f", podlinkowane przez [{r.via}]" if r.via else ""
+    lines = [f"[{r.n}] {r.publisher}: „{r.title}” ({date}{SOURCE_TYPE_PL[r.source_type]}{via})"
+             f" · {ROLE_PL[r.role]}", f"    {r.url}"]
+    for q in r.quotes:
+        label = {"ocena": "ocena", "tresc": "cytat", "naglowek": "nagłówek"}[q.kind]
+        lines.append(f"    {label}: „{q.text}”")
     return lines
 
 
-LABELS = {
-    "potwierdzone": "Potwierdzone",
-    "falszywe": "Fałszywe",
-    "wprowadzajace_w_blad": "Wprowadzające w błąd",
-    "brak_dowodow": "Brak wystarczających dowodów",
-    "nie_podlega_weryfikacji": "Nie podlega weryfikacji",
-}
+def render_primary(r: SourceRef) -> list[str]:
+    """Primary material a cited source links to (graph relation): existence, not content.
+    We do not fetch anything during a check, so availability is as of the knowledge base."""
+    when = f"{r.fetched_at:%Y-%m-%d}"
+    return [
+        f"Źródło pierwotne: {r.publisher} „{r.quote}” [{r.n}], w bazie źródeł od {when}. "
+        f"To potwierdza istnienie materiału w chwili pobrania do bazy, a nie prawdziwość jego treści.",
+        f"    {r.url}",
+    ]
 
 
-def render_web_results(results: list[WebResult], limit: int = 5) -> list[str]:
-    if not results:
-        return []
-    lines = ["Pozostałe linki z wyszukiwania (nieocenione, NIE są dowodem w werdykcie):"]
-    for r in results[:limit]:
-        tag = f"[katalog: {SOURCE_TYPE_PL[r.source_type]}] " if r.in_catalog else ""
-        lines.append(f"- {tag}{r.title or r.domain} ({r.domain})")
-        lines.append(f"    {r.url}")
-    return lines
-
-
-def compose_answer(
-    claims: list[Claim], verdicts: list[Verdict], web_results: list[WebResult], llm_params: dict
-) -> str:
+def compose_answer(claims: list[Claim], verdicts: list[Verdict], llm_params: dict) -> str:
     if not claims:
         return "Nie znaleziono twierdzenia do sprawdzenia. Doprecyzuj, proszę, co mamy zweryfikować."
     by_id = {c.id: c for c in claims}
     blocks = []
     for v in verdicts:
-        lines = [
-            f"Twierdzenie: {by_id[v.claim_id].text}",
-            f"Werdykt: {LABELS[v.label]} (siła: {v.strength})",
-            "Przesłanki: " + " ".join(v.reasons),
-        ]
+        claim = by_id[v.claim_id]
+        why = _explain(claim, v, llm_params) or template_why(v)
+        lines = [f"Twierdzenie: {claim.text}"] if len(claims) > 1 else []
+        lines.append(f"{v.lead} {why}")
+        judged = [r for r in v.sources if r.role != "podlinkowane"]
+        for r in judged:
+            lines += render_source(r)
+        for r in v.sources:
+            if r.role == "podlinkowane":
+                lines += render_primary(r)
+        if v.label != "nie_podlega_weryfikacji":
+            lines.append(f"Przesłanki (siła: {v.strength}): " + " ".join(v.reasons))
         if v.warnings:
             lines.append("Uwaga: " + " ".join(v.warnings))
-        lines += render_sources(v)
-        explanation = _explain(by_id[v.claim_id], v, llm_params)
-        if explanation:
-            lines.append("Interpretacja systemu (na podstawie źródeł powyżej): " + explanation)
-        used = {r.url for r in v.sources}
-        lines += render_web_results(
-            [w for w in web_results if w.claim_id == v.claim_id and w.url not in used])
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
 
-def assemble(
-    norm_input, claims: list[Claim], verdicts: list[Verdict], web_results: list[WebResult],
-    answer: str,
-) -> dict:
+def assemble(norm_input, claims: list[Claim], verdicts: list[Verdict], answer: str) -> dict:
     """Final node: collects free outputs (Kedro releases intermediates during a run)."""
     limitations = []
     if norm_input.injection_suspected:
         limitations.append("Wykryto możliwą próbę manipulacji poleceniami; treść potraktowano jako dane.")
     if norm_input.pii_masked:
         limitations.append("Dane osobowe zostały zamaskowane przed analizą.")
-    return {"claims": claims, "verdicts": verdicts, "web_results": web_results,
-            "answer": answer, "limitations": limitations}
+    return {"claims": claims, "verdicts": verdicts, "answer": answer, "limitations": limitations}

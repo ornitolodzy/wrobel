@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
 from urllib.parse import urljoin, urlparse
@@ -25,6 +25,16 @@ class Page:
     text: str
     published_at: datetime | None
     sitename: str | None
+    links: list[tuple[str, str]] = field(default_factory=list)  # (absolute url, anchor text)
+    ratings: list[str] = field(default_factory=list)  # fact-checker labels found verbatim on the page
+    http_status: int | None = 200
+
+
+# Rating labels used by Polish fact-checkers (Demagog, Konkret24, AFP Sprawdzam...).
+RATING_LABELS = {
+    "prawda", "fałsz", "manipulacja", "częściowa prawda", "częściowy fałsz",
+    "nieweryfikowalne", "brak kontekstu", "fake news", "wprowadza w błąd", "zmanipulowane",
+}
 
 
 class FetchError(RuntimeError):
@@ -112,7 +122,7 @@ def extract(html: str, url: str) -> Page | None:
     import trafilatura
 
     doc = trafilatura.bare_extraction(html, url=url, with_metadata=True, include_comments=False,
-                                      include_tables=False, favor_precision=True)
+                                      include_tables=False)  # favor_precision dropped most gov.pl text
     if doc is None:
         return None
     d = doc.as_dict() if hasattr(doc, "as_dict") else doc
@@ -127,8 +137,39 @@ def extract(html: str, url: str) -> Page | None:
                 published = published.replace(tzinfo=timezone.utc)
         except ValueError:
             published = None
+    links, ratings = _links_and_ratings(html, url)
     return Page(url=url, title=(d.get("title") or "").strip(), text=text,
-                published_at=published, sitename=d.get("sitename"))
+                published_at=published, sitename=d.get("sitename"), links=links, ratings=ratings)
+
+
+def _links_and_ratings(html: str, base_url: str, max_links: int = 300):
+    """Outgoing links (absolute url, anchor text) and standalone rating labels, verbatim."""
+    import lxml.html
+
+    try:
+        tree = lxml.html.fromstring(html)
+    except (ValueError, lxml.etree.ParserError):
+        return [], []
+    links, seen = [], set()
+    for a in tree.iter("a"):
+        href = (a.get("href") or "").strip()
+        if not href or href.startswith(("#", "mailto:", "javascript:", "tel:")):
+            continue
+        absolute = urljoin(base_url, href).split("#")[0]
+        if absolute in seen or urlparse(absolute).scheme not in ("http", "https"):
+            continue
+        seen.add(absolute)
+        links.append((absolute, " ".join(a.text_content().split())[:200]))
+        if len(links) >= max_links:
+            break
+    ratings = []
+    for el in tree.iter():
+        if not isinstance(el.tag, str) or el.tag in ("script", "style", "a"):
+            continue
+        txt = " ".join((el.text or "").split())
+        if txt and txt.lower() in RATING_LABELS and txt not in ratings:
+            ratings.append(txt)
+    return links, ratings
 
 
 _override: Fetcher | None = None

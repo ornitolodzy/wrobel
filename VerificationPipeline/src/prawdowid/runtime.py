@@ -32,11 +32,14 @@ def _pipeline():
 
 
 @lru_cache(maxsize=1)
-def load_parameters(conf_source: str | None = None) -> dict:
+def load_parameters(conf_source: str | None = None, env: str | None = None) -> dict:
+    """conf/base + one overriding environment: `env`, else $PRAWDOWID_ENV, else "local".
+    Tests set PRAWDOWID_ENV=test (no such dir) so they never pick up local models or keys."""
     loader = OmegaConfigLoader(
         conf_source=conf_source or str(PROJECT_ROOT / "conf"),
         base_env="base",
         default_run_env="local",
+        env=env or os.environ.get("PRAWDOWID_ENV") or "local",
         merge_strategy={"parameters": "soft"},  # local overrides only the keys it lists
     )
     return dict(loader["parameters"])

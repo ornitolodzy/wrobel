@@ -14,10 +14,14 @@ llm:
     #
     # Note: role overrides are merged key by key with conf/base, so always set `model` explicitly.
 
-web_search:
-  provider: ddgs            # no key; for deployment prefer searxng (self-host)
-  backend: bing             # ddgs engine; duckduckgo rate-limits quickly
-  # site_queries: [gov.pl]  # brave/searxng: extra query limited to official sources
-  # provider: searxng
-  # api_base: http://localhost:8080
-  # provider: brave         # needs BRAVE_API_KEY in .env
+retrieval:
+  backend: neo4j            # knowledge graph of the other team; export NEO4J_PASSWORD=...
+  neo4j:
+    uri: bolt://localhost:7687
+  # backend: postgres       # own corpus: docker-compose up -d db, kedro run --pipeline ingestion
+embeddings:
+  provider: ollama          # on the server: ollama pull bge-m3
+  model: bge-m3
+  api_base: http://127.0.0.1:11435
+reranker:
+  enabled: true             # BAAI/bge-reranker-v2-m3 on CPU, ~2.2 GB; pip install -e ".[rerank]"

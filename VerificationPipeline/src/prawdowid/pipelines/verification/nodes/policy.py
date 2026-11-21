@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from prawdowid.models import (
     ROLE_OF_STANCE,
+    CitedQuote,
     Claim,
     ClaimEvidence,
     Evidence,
@@ -40,13 +41,15 @@ def decide(
     now = now or datetime.now(timezone.utc)
 
     def verdict(label, reasons, used=(), warnings=()):
+        sources = source_refs(list(used), evidence_by_id)
         return Verdict(
             claim_id=claim.id,
             label=label,
+            lead=lead_for(label, claim.is_question, bool(sources)),
             strength=_strength(list(used), evidence_by_id),
             reasons=list(reasons),
             evidence=list(used),
-            sources=source_refs(list(used), evidence_by_id),
+            sources=sources,
             warnings=list(warnings) + _archive_warning(list(used), evidence_by_id, now, p),
         )
 
@@ -54,6 +57,7 @@ def decide(
         return Verdict(
             claim_id=claim.id,
             label="nie_podlega_weryfikacji",
+            lead=lead_for("nie_podlega_weryfikacji", claim.is_question, False),
             strength="niska",
             reasons=["To opinia lub prognoza, a nie twierdzenie o fakcie."],
         )
@@ -121,22 +125,63 @@ def decide_all(
     ]
 
 
+_KIND_ORDER = {"ocena": 0, "tresc": 1, "naglowek": 2}
+
+
 def source_refs(used: list[Stance], by_id: dict[str, Evidence]) -> list[SourceRef]:
-    """Numbered sources behind a verdict: confirming first, then refuting, then context."""
+    """Numbered sources behind a verdict, one per URL: confirming first, then refuting, then
+    context; then primary material that a cited fact-checker links to (chain of sources)."""
     order = {"supports": 0, "refutes": 1, "missing_context": 2}
-    seen, refs = set(), []
-    for s in sorted(used, key=lambda s: order.get(s.label, 9)):
-        if s.label not in ROLE_OF_STANCE or s.chunk_id in seen:
-            continue
-        seen.add(s.chunk_id)
+    refs: list[SourceRef] = []
+    by_url: dict[str, SourceRef] = {}
+    ranked = sorted(
+        (s for s in used if s.label in ROLE_OF_STANCE),
+        key=lambda s: (order[s.label], _KIND_ORDER[by_id[s.chunk_id].section]),
+    )
+    for s in ranked:
         e = by_id[s.chunk_id]
-        refs.append(SourceRef(
-            n=len(refs) + 1, role=ROLE_OF_STANCE[s.label], publisher=e.publisher, title=e.title,
-            url=e.url, source_type=e.source_type, published_at=e.published_at,
-            fetched_at=e.fetched_at, doc_id=e.doc_id, chunk_id=e.chunk_id, quote=s.quote,
-            rationale=s.rationale,
-        ))
+        quote = CitedQuote(kind=e.section, text=s.quote, rationale=s.rationale)
+        if e.url in by_url:
+            if quote.text not in {q.text for q in by_url[e.url].quotes}:
+                by_url[e.url].quotes.append(quote)
+            continue
+        ref = _ref(len(refs) + 1, ROLE_OF_STANCE[s.label], e, quote)
+        refs.append(ref)
+        by_url[e.url] = ref
+
+    # Primary material linked by a cited source (e.g. Demagog -> PAP dispatch): its headline is
+    # taken verbatim from the fetched page, so it is shown even if the model did not judge it.
+    for e in sorted(by_id.values(), key=lambda e: e.chunk_id):
+        if e.section == "naglowek" and e.via_url in by_url and e.url not in by_url:
+            ref = _ref(len(refs) + 1, "podlinkowane", e, CitedQuote(kind="naglowek", text=e.text))
+            refs.append(ref)
+            by_url[e.url] = ref
+    for ref in refs:
+        if ref.via_url in by_url:
+            ref.via = by_url[ref.via_url].n
     return refs
+
+
+def _ref(n: int, role: str, e: Evidence, quote: CitedQuote) -> SourceRef:
+    return SourceRef(
+        n=n, role=role, publisher=e.publisher, title=e.title, url=e.url,
+        source_type=e.source_type, published_at=e.published_at, fetched_at=e.fetched_at,
+        doc_id=e.doc_id, chunk_id=e.chunk_id, quote=quote.text, rationale=quote.rationale,
+        kind=quote.kind, quotes=[quote], http_status=e.http_status, via_url=e.via_url,
+    )
+
+
+def lead_for(label: str, is_question: bool, has_sources: bool) -> str:
+    """Short answer shown first."""
+    if label == "potwierdzone":
+        return "Tak." if is_question else "Prawda."
+    if label == "falszywe":
+        return "Nie." if is_question else "Fałsz."
+    if label == "wprowadzajace_w_blad":
+        return "Wprowadzające w błąd."
+    if label == "nie_podlega_weryfikacji":
+        return "Niemożliwe do weryfikacji."
+    return "Nie da się tego jednoznacznie potwierdzić." if has_sources else "Nie znaleziono informacji."
 
 
 def _strength(used: list[Stance], by_id: dict[str, Evidence]) -> str:

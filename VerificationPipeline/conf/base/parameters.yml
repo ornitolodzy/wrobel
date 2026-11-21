@@ -15,44 +15,32 @@ llm:
     anthropic/claude-haiku-5-5: [0.10, 0.50]
 
 retrieval:
-  backend: mock             # mock | postgres
-  embedding_model: BAAI/bge-m3
-  reranker_model: BAAI/bge-reranker-v2-m3
+  # Context comes ONLY from the knowledge base; the verification pipeline never accesses the web.
+  backend: mock             # neo4j (knowledge graph, ADR 0005) | postgres (own corpus) | mock (tests)
+  neo4j:                    # read-only; password from $NEO4J_PASSWORD (also $NEO4J_URI, $NEO4J_USER)
+    uri: bolt://localhost:7687
+    user: neo4j
+    database: null          # null = server default
+    vector_index: chunk_embedding
+    fulltext_index: chunk_text
+    cites_limit: 2          # primary materials per fact-check (graph relation CITES)
+    timeout_s: 5
+    queries: {}             # override Cypher per docs/neo4j-kontrakt.md if the schema differs
   candidates_per_query: 30
   top_k: 8
   max_per_document: 2
   max_per_dup_group: 2
   rrf_k: 60
-  rerank_min: 0.30          # early stop -> brak_dowodow (calibrate on eval set)
-
-web_search:
-  # Links to check per factual claim. NOT evidence: does not change the verdict.
-  # provider: mock (no network) | ddgs (DuckDuckGo, no key) | searxng (self-host) | brave (BRAVE_API_KEY)
-  provider: mock
-  enabled: true
-  max_results: 8
-  timeout_s: 8
-  region: pl-pl             # ddgs
-  backend: auto             # ddgs: auto | bing | duckduckgo | brave | google | mojeek | yahoo
-  language: pl              # searxng, brave
-  catalog_path: conf/base/sources.yml   # catalog domains ranked first and labelled
-  # Extra query restricted to these domains, e.g. [gov.pl]. Works with brave/searxng;
-  # ddgs returned no results for site: queries in tests, so it is off by default.
-  site_queries: []
-  blocked_domains: []
-
-web_fetch:
-  # Top search results -> page text -> evidence (stance + citation validator + policy).
-  enabled: true
-  top_n_pages: 3            # per claim
-  timeout_s: 6
-  max_bytes: 2000000
-  respect_robots: true
-  chunk_chars: 1200
-  chunks_per_page: 2
+  rerank_min: 0.30          # candidates below are dropped; none left -> early stop (calibrate in eval)
+  hnsw_ef_search: 100       # pgvector HNSW recall/speed; recorded in the trace
+  neighbours: 0             # glue +-N neighbouring chunks to the top results
+  neighbours_top: 5
+  max_context_chars: 12000  # evidence text budget per claim for the stance prompt
 
 citations:
-  fuzzy_min: 90             # rapidfuzz partial_ratio
+  # Verbatim match after normalization (ADR 0003); fuzzy score is logged, never accepts.
+  min_words: 4              # shorter text quotes prove nothing ("MSZ")
+  min_chars: 20
 
 policy:
   source_weights:
@@ -66,9 +54,36 @@ policy:
 
 ingestion:
   sources_path: conf/base/sources.yml
+  links_per_seed: 15        # 1 level: article-like links of the same catalog entry
+  max_pages_per_domain: 120
+  parallel_domains: 6       # domains in parallel, sequential (delay) within a domain
+  delay_s: 1.0
+  timeout_s: 10
+  max_bytes: 3000000
+  min_chars: 200            # pages with less text (JS apps, empty lists) are reported, not indexed
   chunk_chars: 1200
-  chunk_overlap: 150
+  chunk_overlap: 150        # end of a chunk repeated at the start of the next one
+  report_path: data/ingestion/report.json
+
+embeddings:
+  # The SAME model must embed the corpus and the queries (retrieval refuses a mismatch).
+  # provider: mock (tests) | ollama (e.g. bge-m3 on the Bielik server via the SSH tunnel)
+  provider: mock
+  model: bge-m3
+  api_base: http://127.0.0.1:11435
+  dim: 1024
+  batch: 16
+  timeout_s: 60
+
+reranker:
+  # Cross-encoder over corpus + web candidates: one comparable relevance scale. CPU, lazy-loaded.
+  enabled: false
+  model: BAAI/bge-reranker-v2-m3
+  top_n: 30
+  max_length: 512
+  batch: 8
 
 eval:
   cases_path: tests/eval/cases.jsonl
+  retrieval_cases_path: tests/eval/retrieval_cases.jsonl   # {id, claim, relevant_urls: [...]}; [] = no evidence expected
   report_path: data/eval/report.json

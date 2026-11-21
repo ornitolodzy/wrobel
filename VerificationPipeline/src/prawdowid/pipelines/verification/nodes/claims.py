@@ -12,14 +12,28 @@ _OPINION = re.compile(r"\b(uważam|myślę|moim zdaniem|sądzę|najlepsz|najgors
 _PREDICTION = re.compile(r"\b(będzie|wkrótce|w przyszłym|za rok)\b", re.I)
 
 
+_QUESTION = re.compile(r"^\s*czy\s+", re.I)
+
+
+def question_to_claim(text: str) -> tuple[str, bool]:
+    """'Czy PAP usunęła depeszę?' -> ('PAP usunęła depeszę.', True). Negation is kept as asked,
+    so the verdict on the claim answers the question directly (Tak/Nie)."""
+    t = text.strip()
+    if not (t.endswith("?") or _QUESTION.match(t)):
+        return t, False
+    t = _QUESTION.sub("", t).rstrip("?").strip()
+    return (t[:1].upper() + t[1:] + "." if t else text.strip()), True
+
+
 def _rule_based(text: str) -> list[Claim]:
+    text, is_question = question_to_claim(text)
     if _OPINION.search(text):
         ctype = "opinion"
     elif _PREDICTION.search(text):
         ctype = "prediction"
     else:
         ctype = "factual"
-    return [Claim(id="c1", text=text, type=ctype)]
+    return [Claim(id="c1", text=text, type=ctype, is_question=is_question)]
 
 
 def extract_claims(norm_input: NormalizedInput, llm_params: dict) -> list[Claim]:

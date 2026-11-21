@@ -2,15 +2,29 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
+-- One row per catalog entry (conf/base/sources.yml); gov.pl has one entry per institution (path).
 CREATE TABLE IF NOT EXISTS source (
     id               serial PRIMARY KEY,
-    domain           text NOT NULL UNIQUE,
+    domain           text NOT NULL,
+    path             text NOT NULL DEFAULT '',
     publisher        text NOT NULL,
     type             text NOT NULL CHECK (type IN ('primary', 'factcheck', 'secondary')),
     license          text,
     qualification_note text,
     update_policy    text,
-    active           boolean NOT NULL DEFAULT true
+    active           boolean NOT NULL DEFAULT true,
+    UNIQUE (domain, path)
+);
+
+-- Every ingestion run that changes the index creates a version; checks record which one they used.
+CREATE TABLE IF NOT EXISTS corpus_version (
+    id               serial PRIMARY KEY,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    embedding_model  text NOT NULL,
+    dim              int  NOT NULL,
+    n_docs           int  NOT NULL,
+    n_chunks         int  NOT NULL,
+    params           jsonb NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS document (
@@ -21,16 +35,22 @@ CREATE TABLE IF NOT EXISTS document (
     published_at  timestamptz,
     fetched_at    timestamptz NOT NULL DEFAULT now(),
     content_hash  text NOT NULL,
-    dup_group     text NOT NULL
+    dup_group     text NOT NULL,
+    seed_url      text,                 -- catalog start page it was reached from
+    depth         int  NOT NULL DEFAULT 0,
+    extract_version text NOT NULL DEFAULT 'trafilatura-2'
 );
 
 CREATE TABLE IF NOT EXISTS chunk (
     id           text PRIMARY KEY,
     document_id  text NOT NULL REFERENCES document(id) ON DELETE CASCADE,
+    position     int  NOT NULL DEFAULT 0,  -- order in the document (neighbour chunks)
     text         text NOT NULL,
     tsv          tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED,
-    embedding    vector(1024)  -- bge-m3 dense dim
+    embedding    vector(1024),             -- bge-m3 dense dim
+    corpus_version int REFERENCES corpus_version(id)
 );
+CREATE INDEX IF NOT EXISTS chunk_doc_pos_idx ON chunk (document_id, position);
 CREATE INDEX IF NOT EXISTS chunk_tsv_idx ON chunk USING gin (tsv);
 CREATE INDEX IF NOT EXISTS chunk_emb_idx ON chunk USING hnsw (embedding vector_cosine_ops);
 

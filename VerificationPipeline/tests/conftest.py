@@ -1,4 +1,12 @@
-import pytest
+import os
+
+# Tests run on conf/base only: never on conf/local (real models, tunnels, keys).
+os.environ["PRAWDOWID_ENV"] = "test"
+# ...and never download models (Hugging Face) during tests.
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+import pytest  # noqa: E402
 
 from prawdowid.websearch import fetch as web_fetch
 

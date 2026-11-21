@@ -28,6 +28,7 @@ class ClaimOut(BaseModel):
     type: ClaimType
     entities: list[str] = Field(default_factory=list)
     time_ref: str | None = None
+    is_question: bool = False
 
 
 class ClaimsOut(BaseModel):
@@ -91,7 +92,8 @@ def extract_claims_llm(text: str, llm_params: dict) -> list[Claim]:
     out: ClaimsOut = _call("claims", llm_params, user, ClaimsOut).parsed
     max_claims = llm_params.get("max_claims", 3)
     return [
-        Claim(id=f"c{i}", text=c.text, type=c.type, entities=c.entities, time_ref=c.time_ref)
+        Claim(id=f"c{i}", text=c.text, type=c.type, entities=c.entities, time_ref=c.time_ref,
+              is_question=c.is_question)
         for i, c in enumerate(out.claims[:max_claims], start=1)
         if c.text.strip()
     ]
@@ -102,13 +104,13 @@ def judge_stance_llm(claim: Claim, evidence: list[Evidence], llm_params: dict) -
     if hasattr(provider, "judge_stance"):  # non-generative stance models (NLI)
         return provider.judge_stance(claim, evidence)
 
+    def attrs(i, e):
+        date = f' date="{e.published_at:%Y-%m-%d}"' if e.published_at else ""
+        return (f'id="{i}" publisher="{_escape(e.publisher)}" type="{e.source_type}" '
+                f'section="{e.section}"{date}')
+
     sources = "\n".join(
-        f'<source id="{i}" publisher="{_escape(e.publisher)}" type="{e.source_type}" '
-        f'date="{e.published_at:%Y-%m-%d}">\n{_escape(e.text)}\n</source>'
-        if e.published_at else
-        f'<source id="{i}" publisher="{_escape(e.publisher)}" type="{e.source_type}">\n'
-        f"{_escape(e.text)}\n</source>"
-        for i, e in enumerate(evidence, start=1)
+        f"<source {attrs(i, e)}>\n{_escape(e.text)}\n</source>" for i, e in enumerate(evidence, 1)
     )
     user = f"<claim>\n{_escape(claim.text)}\n</claim>\n<sources>\n{sources}\n</sources>"
     out: StanceOut = _call("stance", llm_params, user, StanceOut).parsed
@@ -123,12 +125,13 @@ def judge_stance_llm(claim: Claim, evidence: list[Evidence], llm_params: dict) -
 
 
 def explain_llm(claim: Claim, verdict: Verdict, llm_params: dict) -> list[ExplainSentence]:
-    sources = "\n".join(
-        f'<source n="{r.n}" role="{r.role}" publisher="{_escape(r.publisher)}"'
-        f'{f" date={chr(34)}{r.published_at:%Y-%m-%d}{chr(34)}" if r.published_at else ""}>'
-        f"{_escape(r.quote)}</source>"
-        for r in verdict.sources
-    )
+    def source(r):
+        date = f' date="{r.published_at:%Y-%m-%d}"' if r.published_at else ""
+        quotes = "\n".join(f'<quote kind="{q.kind}">{_escape(q.text)}</quote>' for q in r.quotes)
+        return (f'<source n="{r.n}" role="{r.role}" publisher="{_escape(r.publisher)}" '
+                f'type="{r.source_type}"{date}>\n{quotes}\n</source>')
+
+    sources = "\n".join(source(r) for r in verdict.sources)
     user = (
         f"<claim>{_escape(claim.text)}</claim>\n<verdict>{verdict.label}</verdict>\n"
         f"<premises>{_escape(' '.join(verdict.reasons))}</premises>\n<sources>\n{sources}\n</sources>"

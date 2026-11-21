@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from prawdowid.llm import usage
 from prawdowid.models import ClaimEvidence, Evidence, Query
 from prawdowid.retrieval import get_retriever
 
@@ -21,32 +22,46 @@ def rrf_merge(rankings: list[list[str]], k: int = 60) -> list[str]:
 
 
 def diversify(evidence: list[Evidence], top_k: int, max_per_doc: int, max_per_group: int):
-    out, per_doc, per_group = [], defaultdict(int), defaultdict(int)
+    return diversify_explained(evidence, top_k, max_per_doc, max_per_group)[0]
+
+
+def diversify_explained(evidence: list[Evidence], top_k: int, max_per_doc: int, max_per_group: int,
+                        max_chars: int | None = None):
+    """Keep the best candidates under diversity caps and a text budget; return (kept, dropped)
+    where dropped = [(evidence, reason)] so the trace says why each candidate was left out."""
+    kept, dropped = [], []
+    per_doc, per_group, chars = defaultdict(int), defaultdict(int), 0
     for e in evidence:
-        if per_doc[e.doc_id] >= max_per_doc or per_group[e.dup_group] >= max_per_group:
-            continue
-        out.append(e)
-        per_doc[e.doc_id] += 1
-        per_group[e.dup_group] += 1
-        if len(out) >= top_k:
-            break
-    return out
+        if len(kept) >= top_k:
+            dropped.append((e, f"poza top_k={top_k}"))
+        elif per_doc[e.doc_id] >= max_per_doc:
+            dropped.append((e, f"limit {max_per_doc} fragmentów z dokumentu"))
+        elif per_group[e.dup_group] >= max_per_group:
+            dropped.append((e, f"przedruk: grupa {e.dup_group} ma już {max_per_group}"))
+        elif max_chars is not None and kept and chars + len(e.text) > max_chars:
+            dropped.append((e, f"budżet kontekstu {max_chars} znaków"))
+        else:
+            kept.append(e)
+            per_doc[e.doc_id] += 1
+            per_group[e.dup_group] += 1
+            chars += len(e.text)
+    return kept, dropped
 
 
-def _search(query: Query, params: dict) -> list[Evidence]:
-    return get_retriever(params).search(query, params)
-
-
-def retrieve_rerank(queries: list[Query], retrieval_params: dict) -> list[ClaimEvidence]:
+def retrieve_rerank(
+    queries: list[Query], retrieval_params: dict, embeddings_params: dict | None = None
+) -> list[ClaimEvidence]:
+    """Knowledge-base candidates per claim, best first. Final selection (reranker, diversity,
+    budget, threshold) happens in select_context."""
+    params = {**retrieval_params, "embeddings": embeddings_params or {}}
     results = []
     for q in queries:
-        ranked = sorted(_search(q, retrieval_params), key=lambda e: e.rerank_score, reverse=True)
-        ranked = diversify(
-            ranked,
-            retrieval_params["top_k"],
-            retrieval_params["max_per_document"],
-            retrieval_params["max_per_dup_group"],
-        )
-        early = not ranked or ranked[0].rerank_score < retrieval_params["rerank_min"]
-        results.append(ClaimEvidence(claim_id=q.claim_id, evidence=ranked, early_stop=early))
+        try:
+            found = get_retriever(params).search(q, params)
+        except Exception as e:  # corpus is best-effort, like web search: never fails the check
+            usage.record(role="retrieval", event="error", claim_id=q.claim_id,
+                         reason=f"{type(e).__name__}: {e}")
+            found = []
+        ranked = sorted(found, key=lambda e: e.rerank_score, reverse=True)
+        results.append(ClaimEvidence(claim_id=q.claim_id, evidence=ranked, early_stop=not ranked))
     return results

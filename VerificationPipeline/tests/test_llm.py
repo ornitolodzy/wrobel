@@ -74,7 +74,7 @@ def test_refuting_primary_source_gives_false_with_explanation(params):
     assert (src.n, src.role, src.publisher) == (1, "zaprzecza", "MSZ")
     assert src.url == "https://www.gov.pl/web/dyplomacja/x" and src.quote == QUOTE
     assert "https://www.gov.pl/web/dyplomacja/x" in r.answer and f"„{QUOTE}”" in r.answer
-    assert "Komunikat MSZ zaprzecza, że pismo pochodzi z MSZ. [1]" in r.answer
+    assert r.answer.startswith("Fałsz. Komunikat MSZ zaprzecza, że pismo pochodzi z MSZ. [1]")
 
 
 def test_fabricated_quote_is_dropped(params):
@@ -86,7 +86,7 @@ def test_fabricated_quote_is_dropped(params):
 def test_explanation_with_unsupported_number_falls_back_to_template(params):
     r = run(params, claims=CLAIMS, stance=stance("refutes", "pismo w sprawie Czech nie pochodzi z MSZ"),
             explain=explain(("W 2019 roku 5 ambasad to potwierdziło.", [1])))
-    assert "Interpretacja systemu" not in r.answer
+    assert "2019" not in r.answer
     events = [c.get("event") for t in r.trace for c in t.get("calls", [])]
     assert "explanation_rejected" in events
 
@@ -95,7 +95,7 @@ def test_llm_calls_recorded_in_trace(params):
     r = run(params, claims=CLAIMS, stance=stance("irrelevant", "x"), explain=explain(("x", [1])))
     calls = {t["step"]: t["calls"] for t in r.trace if "calls" in t}
     assert calls["extract_claims"][0]["model"] == "fake-model"
-    assert calls["extract_claims"][0]["prompt_version"] == "0.2"
+    assert calls["extract_claims"][0]["prompt_version"] == "0.3"
     assert "judge_stance" in calls
 
 
@@ -137,18 +137,44 @@ def test_nli_ignores_inherited_llm_model_name():
 def test_explanation_must_cite_given_sources(params, bad):
     r = run(params, claims=CLAIMS, stance=stance("refutes", QUOTE), explain=bad)
     assert r.verdicts[0].label == "falszywe"
-    assert "Interpretacja systemu" not in r.answer          # template only
-    assert "Źródła:" in r.answer and "[1] zaprzecza" in r.answer
+    assert r.answer.startswith("Fałsz. ")                   # template "why", LLM text rejected
+    assert "Pismo jest fałszywe." not in r.answer
+    assert "[1] MSZ: „Komunikat”" in r.answer and "zaprzecza" in r.answer
+    events = [c.get("event") for t in r.trace for c in t.get("calls", [])]
+    assert "explanation_rejected" in events
 
 
 def test_publication_date_of_cited_source_is_allowed_in_explanation(params):
     r = run(params, claims=CLAIMS, stance=stance("refutes", QUOTE),
             explain=explain(("Komunikat MSZ z 2026-11-01 zaprzecza pismu.", [1])))
-    assert "Interpretacja systemu" in r.answer
+    assert r.answer.startswith("Fałsz. Komunikat MSZ z 2026-11-01 zaprzecza pismu. [1]")
 
 
 def test_no_evidence_says_no_sources(params):
     r = run(params, claims=CLAIMS, stance=stance("irrelevant", "x"), explain=explain(("x", [1])))
     v = r.verdicts[0]
     assert v.label == "brak_dowodow" and v.sources == []
-    assert "nie znaleziono źródeł" in r.answer
+    assert v.lead == "Nie znaleziono informacji."
+    assert r.answer.startswith("Nie znaleziono informacji.")
+
+
+def test_question_gets_tak_nie_lead(params):
+    q = {"claims": [{**CLAIMS["claims"][0], "is_question": True}]}
+    r = run(params, claims=q, stance=stance("refutes", QUOTE),
+            explain=explain(("Komunikat MSZ zaprzecza, że pismo pochodzi z MSZ.", [1])))
+    assert r.verdicts[0].lead == "Nie." and r.answer.startswith("Nie. Komunikat MSZ")
+
+
+def test_rating_claim_without_rating_quote_is_rejected(params):
+    r = run(params, claims=CLAIMS, stance=stance("refutes", QUOTE),
+            explain=explain(("MSZ ocenił to twierdzenie jako fałsz.", [1])))
+    assert "ocenił" not in r.answer.splitlines()[0]
+    events = [c.get("reason") for t in r.trace for c in t.get("calls", [])]
+    assert "claims a rating without a cited rating label" in events
+
+
+def test_opinion_lead():
+    from prawdowid.runtime import verify
+    r = verify("Moim zdaniem polityka MSZ jest najgorsza.")
+    assert r.verdicts[0].lead == "Niemożliwe do weryfikacji."
+    assert r.answer.startswith("Niemożliwe do weryfikacji.")

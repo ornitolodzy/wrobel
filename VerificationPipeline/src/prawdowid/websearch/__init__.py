@@ -1,3 +1,5 @@
-from .base import Hit, WebSearch, WebSearchError, get_search
+"""Safe page fetching for OFFLINE corpus ingestion only.
 
-__all__ = ["Hit", "WebSearch", "WebSearchError", "get_search"]
+The verification pipeline does not access the web (ADR 0005): context comes only from the
+knowledge graph.
+"""

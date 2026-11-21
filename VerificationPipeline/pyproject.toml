@@ -19,13 +19,16 @@ dependencies = [
 [project.optional-dependencies]
 llm = ["litellm>=1.110"]
 retrieval = [
+    "neo4j>=5.20",
     "psycopg[binary]>=3.2",
     "pgvector>=0.3",
-    "sentence-transformers>=3.0",
+    "numpy>=1.26",
 ]
-websearch = ["ddgs>=9", "httpx>=0.27", "trafilatura>=2"]
+# Reranker on CPU. Install torch from the CPU index first to avoid ~2.5 GB of CUDA:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+rerank = ["torch>=2.3", "transformers>=4.44"]
 nli = ["transformers>=4.44", "torch>=2.3"]
-ingestion = ["httpx>=0.27", "trafilatura>=1.12", "datasketch>=1.6"]
+ingestion = ["httpx>=0.27", "trafilatura>=2"]
 dev = ["pytest>=8", "kedro-viz>=10", "ruff>=0.6", "httpx>=0.27"]
 
 [tool.setuptools.packages.find]
@@ -43,7 +46,10 @@ source_dir = "src"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-markers = ["live: real model call, costs tokens (needs PRAWDOWID_LIVE_MODEL)"]
+markers = [
+    "live: real model call, costs tokens (needs PRAWDOWID_LIVE_MODEL)",
+    "db: needs Postgres from docker-compose (skipped when unreachable)",
+]
 
 [tool.ruff]
 line-length = 100
