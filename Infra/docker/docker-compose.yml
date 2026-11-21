@@ -1,0 +1,154 @@
+# Stack PRAWDOWID. Uruchamiaj z tego katalogu (Infra/docker): docker compose up -d --build
+# Serwisy sa obok repo Infra: ../../APIGateway, ../../PageScrapper, ../../VerificationPipeline ...
+name: wrobel
+
+services:
+  # Jeden Postgres 16 + pgvector + tsvector: gateway (checks, audit_events), PageScrapper (documents,
+  # scrape_runs), VerificationPipeline (source, document, chunk, corpus_version, check, case).
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: prawdowid
+      POSTGRES_PASSWORD: prawdowid
+      POSTGRES_DB: prawdowid
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prawdowid -d prawdowid"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  ocr:
+    ports:
+      - "127.0.0.1:8001:8000"
+    build:
+      context: ../../ImageRecognitionServcie
+      dockerfile: Dockerfile
+    environment:
+      OCR_HOST: 0.0.0.0
+      OCR_PORT: 8000
+      OCR_LANGS: pl,en
+      OCR_CALLBACK_URL: ""
+      OCR_OFFLINE: "true"
+      OCR_PADDLE_ENABLE_MKLDNN: "false"
+      OCR_MODEL_DIR: /opt/models
+      OCR_LOG_JSON: "true"
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ../../APIGateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: dev
+      LOG_LEVEL: INFO
+      ADMIN_API_KEY: change-me-admin
+      CORS_ORIGINS: http://localhost:4200
+      TRUSTED_PROXIES: 127.0.0.1
+      POSTGRES_USER: prawdowid
+      POSTGRES_PASSWORD: prawdowid
+      POSTGRES_DB: prawdowid
+      DATABASE_URL: postgresql+asyncpg://prawdowid:prawdowid@postgres:5432/prawdowid
+      IMAGE_RECOGNITION_URL: http://ocr:8000
+      LLM_SERVICE_URL: http://verification-pipeline:8000
+      PAGE_SCRAPPER_URL: http://page-scrapper:8002
+      # "pipeline" = model z konfiguracji VerificationPipeline; zmiana bez przebudowy:
+      # PATCH /api/v1/config {"llm_provider": "anthropic", "llm_model": "claude-opus-5-5"}
+      LLM_PROVIDER: pipeline
+      LLM_MODEL: conf
+      DOWNSTREAM_TIMEOUT_SECONDS: "90"
+      MOCK_MODE: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ocr:
+        condition: service_started
+      page-scrapper:
+        condition: service_healthy
+      verification-pipeline:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../../Frontend
+      dockerfile: Dockerfile
+    environment:
+      PORT: 4000
+    restart: unless-stopped
+
+  proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "4200:80"
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - api-gateway
+    restart: unless-stopped
+
+  # URL fetcher (live, dane niezaufane) + ingestion worker (cron / recznie) -> wspolny Postgres
+  # Brak auth: port wystawiony tylko na localhost do testow, ruch produkcyjny idzie przez api-gateway.
+  page-scrapper:
+    build:
+      context: ../../PageScrapper
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8002:8002"
+    environment:
+      LOG_LEVEL: INFO
+      DOCS_ENABLED: "true"
+      DATABASE_URL: postgresql+asyncpg://prawdowid:prawdowid@postgres:5432/prawdowid
+      SOURCES_FILE: sources.yaml
+      REQUEST_TIMEOUT_SECONDS: "15"
+      RENDER_ENABLED: "true"
+      SCRAPE_INTERVAL_MINUTES: "360"
+      SCRAPE_ON_STARTUP: "false"
+      GOOGLE_FACTCHECK_API_KEY: ${GOOGLE_FACTCHECK_API_KEY:-}
+      EUVSDISINFO_TOKEN: ${EUVSDISINFO_TOKEN:-}
+      RAG_INGEST_URL: http://verification-pipeline:8000/ingest
+    volumes:
+      - ../../PageScrapper/imports:/app/imports:ro
+    shm_size: "512mb"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      verification-pipeline:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Verification pipeline (Kedro): ekstrakcja twierdzen -> zapytania -> hybrid retrieval (BM25/tsvector
+  # + wektor, RRF) -> stance -> polityka werdyktu (reguly, nie LLM) -> odpowiedz -> walidator cytatow.
+  # Bez auth: port tylko na localhost, ruch produkcyjny idzie przez api-gateway.
+  verification-pipeline:
+    build:
+      context: ../../VerificationPipeline
+      # Dockerfile trzymamy w repo Infra; sciezka wzgledem kontekstu (VerificationPipeline/)
+      dockerfile: ../Infra/docker/verification-pipeline/Dockerfile
+    ports:
+      - "127.0.0.1:8003:8000"
+    environment:
+      LOG_LEVEL: INFO
+      PRAWDOWID_ENV: docker
+      DATABASE_URL: postgresql://prawdowid:prawdowid@postgres:5432/prawdowid
+      PRAWDOWID_SYNC_ON_STARTUP: "true"
+      # Model LLM (wszystkie role). Puste = conf/ (provider mock: reguly, bez sieci).
+      # Np. PRAWDOWID_LLM_PROVIDER=litellm, PRAWDOWID_LLM_MODEL=anthropic/claude-opus-5-5
+      PRAWDOWID_LLM_PROVIDER: ${PRAWDOWID_LLM_PROVIDER:-}
+      PRAWDOWID_LLM_MODEL: ${PRAWDOWID_LLM_MODEL:-}
+      PRAWDOWID_LLM_API_BASE: ${PRAWDOWID_LLM_API_BASE:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
