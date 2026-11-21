@@ -8,10 +8,12 @@
 #   5. sprawdza połączenia: gateway -> pipeline / scrapper / OCR
 #   6. przy pustej bazie wiedzy uruchamia pierwsze pobranie źródeł (scrapper -> pipeline)
 #
-# Użycie (Git Bash na Windows, Linux, macOS), z dowolnego katalogu (albo `make up` w katalogu głównym):
-#   ./Infra/docker/start.sh              pełny start
-#   ./Infra/docker/start.sh --no-build   start bez przebudowy obrazów
-#   ./Infra/docker/start.sh --no-scrape  bez pierwszego pobrania źródeł
+# Użycie (Git Bash na Windows, Linux, macOS), z dowolnego katalogu (albo `make start`):
+#   ./start.sh              pełny start
+#   ./start.sh --no-build   start bez przebudowy obrazów
+#   ./start.sh --no-scrape  bez pierwszego pobrania źródeł
+#
+# Bot Discord (DiscordBot/) startuje sam, gdy w .env jest DISCORD_TOKEN (profil compose "discord").
 
 set -euo pipefail
 
@@ -30,7 +32,7 @@ for arg in "$@"; do
   case "$arg" in
     --no-build) BUILD=false ;;
     --no-scrape) SCRAPE=false ;;
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Nieznana opcja: $arg (zobacz --help)" >&2; exit 2 ;;
   esac
 done
@@ -47,9 +49,8 @@ warn() { printf '  %s!%s %s\n' "$C_WARN" "$C_END" "$*"; }
 die()  { printf '\n%s✘ %s%s\n' "$C_ERR" "$*" "$C_END" >&2; exit 1; }
 
 # ------------------------------------------------------------------ ścieżki
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    # .../Infra/docker
-ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"                        # katalog główny monorepo
-cd "$SCRIPT_DIR"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"          # katalog główny monorepo
+cd "$ROOT"
 
 # ------------------------------------------------------------------ 1. wymagania
 step "Sprawdzam wymagania"
@@ -83,9 +84,20 @@ else
   cp .env.example .env
   ok "utworzono .env z .env.example"
 fi
+# Bot Discord: profil "discord" tylko z tokenem i kodem bota (bez nich reszta stacku startuje normalnie).
+DISCORD_ENABLED=false
+if grep -qE '^DISCORD_TOKEN=.+' .env && [ -d "$ROOT/DiscordBot/bot" ]; then
+  DISCORD_ENABLED=true
+  export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}discord"
+  ok "bot Discord włączony (DISCORD_TOKEN w .env)"
+elif grep -qE '^DISCORD_TOKEN=.+' .env; then
+  warn "DISCORD_TOKEN jest w .env, ale brak kodu bota ($ROOT/DiscordBot), pomijam bota"
+else
+  warn "bot Discord wyłączony: brak DISCORD_TOKEN w .env (instrukcja: DiscordBot/README.md)"
+fi
 if ! grep -qE '^(ANTHROPIC|MISTRAL|OPENAI)_API_KEY=.+' .env; then
   warn "Brak klucza LLM w .env: werdykty będą 'brak dowodów' (pipeline bez modelu nie ocenia źródeł)."
-  warn "Ustaw PRAWDOWID_LLM_PROVIDER, PRAWDOWID_LLM_MODEL i klucz w $SCRIPT_DIR/.env"
+  warn "Ustaw PRAWDOWID_LLM_PROVIDER, PRAWDOWID_LLM_MODEL i klucz w $ROOT/.env"
 fi
 
 # ------------------------------------------------------------------ 4. build + start
@@ -122,6 +134,11 @@ for svc in llm page_scrapper image_recognition; do
   esac
 done
 curl -fsS -o /dev/null "$APP_URL/" && ok "aplikacja przez proxy: $APP_URL" || warn "proxy $APP_URL nie odpowiada"
+if $DISCORD_ENABLED; then
+  invite="$("${COMPOSE[@]}" logs discord-bot 2>/dev/null | grep -oE 'https://discord\.com/oauth2/authorize[^ ]+' | tail -1 || true)"
+  ok "bot Discord połączony z Discordem${invite:+, link do dodania na serwer:}"
+  [ -n "$invite" ] && echo "    $invite"
+fi
 
 # ------------------------------------------------------------------ 6. baza wiedzy
 step "Baza wiedzy"
@@ -154,7 +171,7 @@ cat <<EOF
   PageScrapper (docs)  http://127.0.0.1:8002/docs
   OCR (docs)           http://127.0.0.1:8001/docs
 
-  Logi:       make logs        (albo: ${COMPOSE[*]} -f "$SCRIPT_DIR/docker-compose.yml" logs -f)
-  Zatrzymaj:  make down        (albo: ${COMPOSE[*]} -f "$SCRIPT_DIR/docker-compose.yml" down)
-  Więcej:     $SCRIPT_DIR/README.md
+  Logi:       make logs        (albo: ${COMPOSE[*]} logs -f, w $ROOT)
+  Zatrzymaj:  make down        (albo: ${COMPOSE[*]} down, w $ROOT)
+  Więcej:     $ROOT/README.md
 EOF

@@ -19,3 +19,5 @@ dist/
 # edytory / system
 .idea/
 .DS_Store
+
+hacknation-llm-wiki

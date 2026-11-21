@@ -1,17 +1,17 @@
 # PRAWDOWID monorepo. `make help` pokazuje cele.
 # Działa z `docker compose` (plugin) i z samodzielnym `docker-compose` v2.
 COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
-DC      := $(COMPOSE) -f Infra/docker/docker-compose.yml
+DC      := $(COMPOSE)
 S       ?=
 
 .PHONY: help up start down clean ps logs build config dev-backend dev-frontend graph-up graph-sync \
-        test test-gateway test-scrapper test-pipeline test-ocr test-graph test-frontend
+        test test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord test-frontend
 
 help: ## lista celów
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
 start: ## pełny start ze sprawdzeniem połączeń i pierwszym pobraniem źródeł
-	./Infra/docker/start.sh
+	./start.sh
 
 up: ## build + start całego stacku
 	$(DC) up -d --build
@@ -46,7 +46,7 @@ graph-up: ## ContextGraph + Neo4j (profil graph), API :8100, Browser :7474
 graph-sync: ## dokumenty z PageScrappera :8002 do grafu :8100
 	cd ContextGraph && python scripts/sync_from_scraper.py --scraper http://127.0.0.1:8002 --graph http://127.0.0.1:8100
 
-test: test-gateway test-scrapper test-pipeline test-ocr test-graph ## testy wszystkich serwisów Pythona
+test: test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord ## testy wszystkich serwisów Pythona
 
 test-gateway:
 	cd APIGateway && python -m pytest
@@ -62,6 +62,9 @@ test-ocr:
 
 test-graph: ## bez NEO4J_TEST_URI tylko testy jednostkowe (integracyjne czyszczą bazę)
 	cd ContextGraph && python -m pytest
+
+test-discord:
+	cd DiscordBot && python -m pytest
 
 test-frontend:
 	cd Frontend && npm test -- --watch=false

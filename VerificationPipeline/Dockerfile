@@ -1,6 +1,5 @@
-# Image of VerificationPipeline. Build context = the VerificationPipeline repo:
-#   docker build -f ../Infra/docker/verification-pipeline/Dockerfile .   (run inside VerificationPipeline/)
-# Ignore rules: Dockerfile.dockerignore next to this file (BuildKit picks it up automatically).
+# Obraz VerificationPipeline. Kontekst = katalog VerificationPipeline/:
+#   docker build -t prawdowid-pipeline VerificationPipeline
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
