@@ -1,30 +1,30 @@
 @echo off
 rem ============================================================
-rem  OCR Tester: uruchamia serwis OCR i otwiera strone testowa.
-rem  Okno "OCR serwis" = dzialajacy serwis; zamknij je, aby go zatrzymac.
+rem  OCR Tester: starts the OCR service and opens the local test page.
+rem  The "OCR serwis" window is the running service; close it to stop the service.
 rem ============================================================
 setlocal
 cd /d "%~dp0"
 title OCR Tester
 
-rem --- Ustawienia dla lokalnych testow (mozna nadpisac zmiennymi srodowiskowymi) ---
+rem --- Local test settings (existing environment variables take precedence) ---
 if not defined OCR_PORT set "OCR_PORT=8000"
 if not defined OCR_MODEL_DIR set "OCR_MODEL_DIR=%~dp0models"
 if not defined OCR_WORKERS set "OCR_WORKERS=2"
 if not defined OCR_PADDLE_CPU_THREADS set "OCR_PADDLE_CPU_THREADS=4"
 set "OCR_LOG_JSON=false"
-rem Strona otwarta z dysku (file://) potrzebuje CORS, zeby rozmawiac z serwisem.
+rem A page opened from disk (file://) needs CORS to call the service.
 set "OCR_CORS_ORIGINS=*"
 set "READY_URL=http://localhost:%OCR_PORT%/readyz"
 
-rem --- Czy serwis juz dziala? ---
+rem --- Is the service already running? ---
 call :ready
 if "%CODE%"=="200" (
     echo [OK] Serwis juz dziala na porcie %OCR_PORT%.
     goto :open
 )
 
-rem --- uv (menedzer Pythona i zaleznosci) ---
+rem --- uv (Python and dependency manager) ---
 set "UV="
 where uv >nul 2>nul && set "UV=uv"
 if not defined UV (
@@ -85,7 +85,7 @@ pause
 endlocal
 exit /b 1
 
-rem --- Ustawia CODE na kod HTTP z /readyz (000 = brak polaczenia) ---
+rem --- Sets CODE to the HTTP status of /readyz (000 = no connection) ---
 :ready
 set "CODE=000"
 for /f %%c in ('curl.exe -s -o nul -m 3 -w "%%{http_code}" "%READY_URL%" 2^>nul') do set "CODE=%%c"
