@@ -148,5 +148,25 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Kanal 2: bot Discord (/wrobel, menu "Sprawdz w Wroblu", DM, @wzmianka). Cienki adapter na API
+  # Gateway (X-Channel: discord), bez wlasnej logiki weryfikacji. Startuje tylko z profilem "discord"
+  # (start.sh wlacza go sam, gdy w .env jest DISCORD_TOKEN): docker compose --profile discord up -d
+  discord-bot:
+    profiles: ["discord"]
+    build:
+      context: ./DiscordBot
+      dockerfile: Dockerfile
+    environment:
+      LOG_LEVEL: INFO
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      GATEWAY_URL: http://api-gateway:8000
+      USER_LIMIT_PER_MINUTE: ${DISCORD_USER_LIMIT_PER_MINUTE:-5}
+      REQUEST_TIMEOUT_SECONDS: "120"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres-data:

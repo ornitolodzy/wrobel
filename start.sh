@@ -12,6 +12,8 @@
 #   ./start.sh              pełny start
 #   ./start.sh --no-build   start bez przebudowy obrazów
 #   ./start.sh --no-scrape  bez pierwszego pobrania źródeł
+#
+# Bot Discord (DiscordBot/) startuje sam, gdy w .env jest DISCORD_TOKEN (profil compose "discord").
 
 set -euo pipefail
 
@@ -30,7 +32,7 @@ for arg in "$@"; do
   case "$arg" in
     --no-build) BUILD=false ;;
     --no-scrape) SCRAPE=false ;;
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Nieznana opcja: $arg (zobacz --help)" >&2; exit 2 ;;
   esac
 done
@@ -82,6 +84,17 @@ else
   cp .env.example .env
   ok "utworzono .env z .env.example"
 fi
+# Bot Discord: profil "discord" tylko z tokenem i kodem bota (bez nich reszta stacku startuje normalnie).
+DISCORD_ENABLED=false
+if grep -qE '^DISCORD_TOKEN=.+' .env && [ -d "$ROOT/DiscordBot/bot" ]; then
+  DISCORD_ENABLED=true
+  export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}discord"
+  ok "bot Discord włączony (DISCORD_TOKEN w .env)"
+elif grep -qE '^DISCORD_TOKEN=.+' .env; then
+  warn "DISCORD_TOKEN jest w .env, ale brak kodu bota ($ROOT/DiscordBot), pomijam bota"
+else
+  warn "bot Discord wyłączony: brak DISCORD_TOKEN w .env (instrukcja: DiscordBot/README.md)"
+fi
 if ! grep -qE '^(ANTHROPIC|MISTRAL|OPENAI)_API_KEY=.+' .env; then
   warn "Brak klucza LLM w .env: werdykty będą 'brak dowodów' (pipeline bez modelu nie ocenia źródeł)."
   warn "Ustaw PRAWDOWID_LLM_PROVIDER, PRAWDOWID_LLM_MODEL i klucz w $ROOT/.env"
@@ -121,6 +134,11 @@ for svc in llm page_scrapper image_recognition; do
   esac
 done
 curl -fsS -o /dev/null "$APP_URL/" && ok "aplikacja przez proxy: $APP_URL" || warn "proxy $APP_URL nie odpowiada"
+if $DISCORD_ENABLED; then
+  invite="$("${COMPOSE[@]}" logs discord-bot 2>/dev/null | grep -oE 'https://discord\.com/oauth2/authorize[^ ]+' | tail -1 || true)"
+  ok "bot Discord połączony z Discordem${invite:+, link do dodania na serwer:}"
+  [ -n "$invite" ] && echo "    $invite"
+fi
 
 # ------------------------------------------------------------------ 6. baza wiedzy
 step "Baza wiedzy"

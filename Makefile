@@ -5,7 +5,7 @@ DC      := $(COMPOSE)
 S       ?=
 
 .PHONY: help up start down clean ps logs build config dev-backend dev-frontend \
-        test test-gateway test-scrapper test-pipeline test-ocr test-frontend
+        test test-gateway test-scrapper test-pipeline test-ocr test-discord test-frontend
 
 help: ## lista celów
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -40,7 +40,7 @@ dev-backend: ## backend w Dockerze bez frontendu (do pracy z `make dev-frontend`
 dev-frontend: ## Angular dev server :4200, /api i /ws -> gateway :8000
 	cd Frontend && npm ci && npm start
 
-test: test-gateway test-scrapper test-pipeline test-ocr ## testy wszystkich serwisów Pythona
+test: test-gateway test-scrapper test-pipeline test-ocr test-discord ## testy wszystkich serwisów Pythona
 
 test-gateway:
 	cd APIGateway && python -m pytest
@@ -53,6 +53,9 @@ test-pipeline:
 
 test-ocr:
 	cd ImageRecognitionServcie && uv run pytest
+
+test-discord:
+	cd DiscordBot && python -m pytest
 
 test-frontend:
 	cd Frontend && npm test -- --watch=false
