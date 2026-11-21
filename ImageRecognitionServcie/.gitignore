@@ -23,3 +23,12 @@ build/
 
 # Logs
 *.log
+
+# Tools / caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.cache/
+
+# OCR model weights (downloaded at runtime / baked into the Docker image)
+models/
