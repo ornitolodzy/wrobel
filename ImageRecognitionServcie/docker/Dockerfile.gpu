@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1.7
+# ImageRecognitionServcie OCR - NVIDIA GPU variant (DRAFT, not tested in CI).
+#
+#   docker build -f docker/Dockerfile.gpu -t image-recognition-servcie:gpu .
+#   docker run --rm --gpus all -p 8000:8000 image-recognition-servcie:gpu
+#
+# Swaps the CPU `paddlepaddle` wheel from uv.lock for `paddlepaddle-gpu` from Paddle's index.
+# Check https://www.paddlepaddle.org.cn/install for the CUDA build matching your driver
+# and adjust CUDA_IMAGE / PADDLE_GPU_INDEX together.
+
+ARG CUDA_IMAGE=nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+ARG UV_VERSION=0.13.7
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
+FROM ${CUDA_IMAGE} AS base
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3.12 python3.12-venv libgomp1 libgl1 libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
+FROM base AS builder
+ARG PADDLE_GPU_VERSION=3.3.1
+ARG PADDLE_GPU_INDEX=https://www.paddlepaddle.org.cn/packages/stable/cu126/
+COPY --from=uv /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never \
+    UV_PYTHON=/usr/bin/python3.12 UV_PROJECT_ENVIRONMENT=/opt/venv
+WORKDIR /src
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-editable \
+ && uv pip uninstall --python /opt/venv/bin/python paddlepaddle \
+ && uv pip install --python /opt/venv/bin/python \
+      --index-url "${PADDLE_GPU_INDEX}" "paddlepaddle-gpu==${PADDLE_GPU_VERSION}"
+
+FROM builder AS models
+ENV OCR_MODEL_DIR=/opt/models OCR_PADDLE_DEVICE=cpu
+# Download only (CPU warm-up) - the build machine usually has no GPU.
+RUN /opt/venv/bin/python -m ocr_service.download_models \
+ && rm -rf /opt/models/temp /opt/models/locks
+
+FROM base AS runtime
+RUN groupadd --system --gid 10001 ocr \
+ && useradd --system --uid 10001 --gid ocr --home-dir /home/ocr --create-home \
+    --shell /usr/sbin/nologin ocr
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=models --chown=ocr:ocr /opt/models /opt/models
+ENV PATH="/opt/venv/bin:${PATH}" HOME=/home/ocr \
+    OCR_HOST=0.0.0.0 OCR_PORT=8000 OCR_MODEL_DIR=/opt/models OCR_OFFLINE=true \
+    OCR_PADDLE_DEVICE=gpu:0 OCR_PADDLE_ENABLE_MKLDNN=false
+USER ocr:ocr
+WORKDIR /home/ocr
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"]
+CMD ["python", "-m", "ocr_service"]

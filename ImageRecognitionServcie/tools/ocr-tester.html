@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCR Tester</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#667085; --line:#e3e6eb; --accent:#2563eb; --ok:#15803d; --err:#b91c1c; --wait:#b45309; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 system-ui, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .muted { color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-top:16px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  input, select, button { font:inherit; padding:7px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--text); }
+  button { background:var(--accent); color:#fff; border-color:var(--accent); cursor:pointer; font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  #drop { border:2px dashed var(--line); border-radius:10px; padding:28px; text-align:center; cursor:pointer; }
+  #drop.over { border-color:var(--accent); background:#eff4ff; }
+  .status { display:flex; gap:20px; flex-wrap:wrap; margin-top:12px; font-weight:600; }
+  .ok { color:var(--ok); } .err { color:var(--err); } .wait { color:var(--wait); }
+  .badge { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; background:#eef2ff; color:var(--accent); margin-left:6px; }
+  .steps { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; }
+  .steps li { display:flex; gap:10px; align-items:baseline; }
+  .steps .dot { width:18px; text-align:center; }
+  .steps li.todo { color:var(--muted); }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  #preview { position:relative; display:inline-block; max-width:100%; }
+  #preview img { display:block; max-width:100%; border-radius:6px; }
+  #preview svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  pre { margin:0; white-space:pre-wrap; word-break:break-word; background:#f3f4f6; border-radius:6px; padding:12px; max-height:420px; overflow:auto; font:13px/1.45 Consolas, monospace; }
+  .meta { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:8px; }
+  .meta b { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+  <h1>OCR Tester</h1>
+  <div class="muted">Wybierz, przeciągnij albo wklej (Ctrl+V) zrzut ekranu i wyślij go do serwisu OCR.
+    W trybie <b>callback</b> serwis odpowiada 202, a wynik wysyła na odbiornik callbacków. Strona pobiera go stamtąd i wyświetla.</div>
+
+  <div class="card">
+    <div class="row">
+      <label>Serwis OCR <input id="url" value="http://localhost:8000" size="24"></label>
+      <label>Odbiornik callbacków <input id="receiver" value="http://127.0.0.1:9000" size="24"></label>
+      <label>X-API-Key (opcjonalnie) <input id="key" placeholder="puste = brak" size="14"></label>
+      <label>Języki <input id="langs" value="pl,en" size="7"></label>
+      <label>Wynik
+        <select id="output"><option value="blocks">blocks</option><option value="text">text</option></select>
+      </label>
+    </div>
+    <div class="status">
+      <span id="svcStatus" class="muted">serwis: sprawdzam…</span>
+      <span id="rcvStatus" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="drop">Kliknij, aby wybrać plik (PNG / JPEG / WebP)<br><span class="muted">albo przeciągnij go tutaj, albo wklej Ctrl+V</span></div>
+    <input id="file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    <div class="row" style="margin-top:12px">
+      <button id="send" disabled>Wyślij do OCR</button>
+      <span id="fileinfo" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="muted" style="margin-bottom:8px">Przebieg</div>
+    <ul class="steps" id="steps"><li class="todo"><span class="dot">·</span>Wyślij zdjęcie, aby zobaczyć przebieg.</li></ul>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="muted" style="margin-bottom:8px">Podgląd (ramki = rozpoznane bloki)</div>
+      <div id="preview"><img id="img" alt=""><svg id="boxes"></svg></div>
+    </div>
+    <div class="card">
+      <div class="meta" id="meta"></div>
+      <div class="muted">Tekst</div>
+      <pre id="text">—</pre>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="muted" style="margin-bottom:8px">Odpowiedź serwisu na POST /v1/ocr</div>
+      <pre id="httpJson">—</pre>
+    </div>
+    <div class="card">
+      <div class="muted" style="margin-bottom:8px">Callback dostarczony do odbiornika</div>
+      <pre id="callbackJson">—</pre>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const POLL_INTERVAL_MS = 500;
+const POLL_LIMIT_MS = 180000;
+let currentFile = null;
+let serviceMode = null; // "response" | "callback"
+
+const trim = (u) => u.replace(/\/+$/, "");
+const svc = () => trim($("url").value);
+const rcv = () => trim($("receiver").value);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ---------------------------------------------------------------- status
+async function checkStatus() {
+  try {
+    const r = await fetch(svc() + "/readyz");
+    const body = await r.json();
+    if (r.ok) {
+      serviceMode = body.delivery || "response";
+      $("svcStatus").innerHTML = `● serwis gotowy (${esc(body.engine)}, workerów ${body.workers_ready}/${body.workers})` +
+        `<span class="badge">tryb: ${serviceMode === "callback" ? "callback" : "odpowiedź"}</span>`;
+      $("svcStatus").className = "ok";
+    } else {
+      $("svcStatus").textContent = `● serwis: ${body.error?.message || "nie gotowy"}`;
+      $("svcStatus").className = "wait";
+    }
+  } catch {
+    serviceMode = null;
+    $("svcStatus").textContent = "● brak połączenia z serwisem";
+    $("svcStatus").className = "err";
+  }
+  if (serviceMode !== "callback") { $("rcvStatus").textContent = ""; return; }
+  try {
+    const r = await fetch(rcv() + "/healthz");
+    $("rcvStatus").textContent = r.ok ? "● odbiornik callbacków działa" : `● odbiornik: HTTP ${r.status}`;
+    $("rcvStatus").className = r.ok ? "ok" : "err";
+  } catch {
+    $("rcvStatus").textContent = "● brak połączenia z odbiornikiem callbacków";
+    $("rcvStatus").className = "err";
+  }
+}
+
+// ---------------------------------------------------------------- UI helpers
+let steps = [];
+function step(text, state = "ok") {
+  steps.push({ text, state });
+  renderSteps();
+  return steps.length - 1;
+}
+function updateStep(i, text, state) { steps[i] = { text, state }; renderSteps(); }
+function renderSteps() {
+  const icon = { ok: "✔", err: "✖", wait: "⏳" };
+  $("steps").innerHTML = steps.map((s) => `<li class="${s.state}"><span class="dot">${icon[s.state] || "·"}</span><span>${s.text}</span></li>`).join("");
+}
+
+function setFile(file) {
+  if (!file) return;
+  currentFile = file;
+  $("fileinfo").textContent = `${file.name || "wklejony obraz"} · ${(file.size / 1024).toFixed(0)} KB`;
+  $("img").src = URL.createObjectURL(file);
+  $("boxes").innerHTML = "";
+  $("send").disabled = false;
+}
+
+function drawBoxes(blocks) {
+  const img = $("img"), svg = $("boxes");
+  svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  const stroke = Math.max(2, img.naturalWidth / 500);
+  svg.innerHTML = (blocks || []).map((b) => {
+    const [x1, y1, x2, y2] = b.bbox;
+    const title = esc(`${b.text} (${(b.confidence * 100).toFixed(1)}%)`);
+    return `<rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" fill="rgba(37,99,235,.12)" stroke="#2563eb" stroke-width="${stroke}"><title>${title}</title></rect>`;
+  }).join("");
+}
+
+function showResult(result, totalMs) {
+  if (result.status === "error" || result.error) {
+    $("meta").innerHTML = `<span class="err">błąd: <b>${esc(result.error?.code || "?")}</b></span><span>łącznie: <b>${totalMs} ms</b></span>`;
+    $("text").textContent = result.error?.message || "Błąd";
+    $("boxes").innerHTML = "";
+    return;
+  }
+  $("meta").innerHTML = `<span>język: <b>${esc(result.lang ?? "—")}</b></span>` +
+    `<span>OCR na serwerze: <b>${result.duration_ms} ms</b></span><span>łącznie: <b>${totalMs} ms</b></span>` +
+    `<span>bloków: <b>${result.blocks ? result.blocks.length : "—"}</b></span>`;
+  $("text").textContent = result.text || "(brak tekstu)";
+  drawBoxes(result.blocks);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function waitForCallback(requestId, started) {
+  const i = step(`Czekam na callback w odbiorniku (${esc(rcv())})…`, "wait");
+  const deadline = performance.now() + POLL_LIMIT_MS;
+  while (performance.now() < deadline) {
+    try {
+      const r = await fetch(`${rcv()}/results/${encodeURIComponent(requestId)}`);
+      if (r.ok) {
+        const delivery = await r.json();
+        const total = Math.round(performance.now() - started);
+        updateStep(i, `Callback dostarczony po ${total} ms${delivery.authorized ? " · token Bearer sprawdzony" : ""}`, "ok");
+        $("callbackJson").textContent = JSON.stringify(delivery.payload, null, 2);
+        showResult(delivery.payload, total);
+        return;
+      }
+    } catch {
+      updateStep(i, "Nie mogę połączyć się z odbiornikiem callbacków. Sprawdź jego adres i czy działa.", "err");
+      return;
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  updateStep(i, `Callback nie dotarł w ${POLL_LIMIT_MS / 1000} s. Sprawdź okno serwisu (logi „callback delivery failed”).`, "err");
+}
+
+// ---------------------------------------------------------------- send
+async function send() {
+  if (!currentFile) return;
+  $("send").disabled = true;
+  $("send").textContent = "Przetwarzanie…";
+  steps = [];
+  $("meta").innerHTML = ""; $("text").textContent = "…"; $("boxes").innerHTML = "";
+  $("httpJson").textContent = "…"; $("callbackJson").textContent = "—";
+
+  const requestId = `tester-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const form = new FormData();
+  form.append("file", currentFile, currentFile.name || "screenshot.png");
+  const params = new URLSearchParams({ langs: $("langs").value, output: $("output").value });
+  const headers = { "X-Request-ID": requestId };
+  if ($("key").value) headers["X-API-Key"] = $("key").value;
+
+  step(`Wysłano zdjęcie (request_id: <b>${requestId}</b>)`);
+  const started = performance.now();
+  try {
+    const r = await fetch(`${svc()}/v1/ocr?${params}`, { method: "POST", body: form, headers });
+    const body = await r.json();
+    const ms = Math.round(performance.now() - started);
+    $("httpJson").textContent = JSON.stringify(body, null, 2);
+    if (r.status === 202) {
+      step(`Serwis przyjął zadanie: HTTP 202 po ${ms} ms; wynik pójdzie na OCR_CALLBACK_URL`);
+      await waitForCallback(body.request_id, started);
+    } else if (r.ok) {
+      step(`Serwis zwrócił wynik w odpowiedzi: HTTP ${r.status} po ${ms} ms (tryb bez callbacku)`);
+      showResult(body, ms);
+    } else {
+      step(`Serwis odrzucił żądanie: HTTP ${r.status} ${esc(body.error?.code || "")}`, "err");
+      showResult(body, ms);
+    }
+  } catch (e) {
+    step("Nie udało się połączyć z serwisem OCR: " + esc(e), "err");
+  } finally {
+    $("send").disabled = false;
+    $("send").textContent = "Wyślij do OCR";
+    checkStatus();
+  }
+}
+
+$("drop").onclick = () => $("file").click();
+$("file").onchange = (e) => setFile(e.target.files[0]);
+$("drop").ondragover = (e) => { e.preventDefault(); $("drop").classList.add("over"); };
+$("drop").ondragleave = () => $("drop").classList.remove("over");
+$("drop").ondrop = (e) => { e.preventDefault(); $("drop").classList.remove("over"); setFile(e.dataTransfer.files[0]); };
+document.addEventListener("paste", (e) => {
+  const item = [...e.clipboardData.items].find((i) => i.type.startsWith("image/"));
+  if (item) setFile(item.getAsFile());
+});
+$("send").onclick = send;
+$("url").onchange = checkStatus;
+$("receiver").onchange = checkStatus;
+checkStatus();
+setInterval(checkStatus, 5000);
+</script>
+</body>
+</html>
