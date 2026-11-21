@@ -166,6 +166,54 @@ Pola odpowiedzi:
 
 Każda odpowiedź ma nagłówek `X-Request-ID`. Można go przekazać w żądaniu, a trafia też do logów.
 
+### Tryb callback (wynik wysyłany na wskazany URL)
+
+Gdy ustawisz `OCR_CALLBACK_URL`, serwis nie odsyła wyniku w odpowiedzi.
+
+**Odpowiedź od razu:** `POST /v1/ocr` odpowiada natychmiast kodem `202 Accepted`:
+
+```json
+{"status": "accepted", "request_id": "order-42"}
+```
+
+`request_id` to wartość nagłówka `X-Request-ID` z żądania (jeśli go wysłałeś) albo wygenerowany identyfikator. Służy do powiązania wyniku z żądaniem.
+
+**Wynik na `OCR_CALLBACK_URL`:** po zakończeniu OCR serwis wysyła `POST` (JSON) na ten adres z nagłówkiem `X-Request-ID` i, jeśli ustawiono `OCR_CALLBACK_TOKEN`, z `Authorization: Bearer <token>`.
+
+Sukces:
+
+```json
+{"status": "ok", "request_id": "order-42", "text": "...", "lang": "pl",
+ "blocks": [{"text": "...", "bbox": [x1, y1, x2, y2], "confidence": 0.98}],
+ "engine": "paddleocr", "duration_ms": 412}
+```
+
+Błąd przetwarzania (np. uszkodzony obraz):
+
+```json
+{"status": "error", "request_id": "order-42",
+ "error": {"code": "invalid_image", "message": "..."}}
+```
+
+**Błędy synchroniczne:** szybkie błędy nadal wracają od razu i nie wywołują callbacku. Są to zły format pliku, przekroczony rozmiar, nieobsługiwany język, brak klucza API, serwis niegotowy oraz przeciążenie (`503 busy`, gdy oczekujących zadań jest więcej niż `OCR_WORKERS + OCR_MAX_QUEUE`).
+
+**Dostarczanie:** sukcesem jest każda odpowiedź 2xx odbiorcy. Przy błędzie sieci, 5xx albo 429 serwis ponawia wysyłkę `OCR_CALLBACK_RETRIES` razy z rosnącym odstępem. Przy innych 4xx nie ponawia, bo odbiorca odrzucił dane. Metryki dostarczania: `ocr_callbacks_total{result="delivered|failed"}` i `ocr_callback_duration_seconds`.
+
+**Przykładowy odbiornik do testów:** [`examples/callback_receiver.py`](examples/callback_receiver.py).
+
+```powershell
+uv run python examples/callback_receiver.py --port 9000
+$env:OCR_CALLBACK_URL = "http://localhost:9000/ocr-results"; uv run ocr-service
+curl.exe -H "X-Request-ID: test-1" -F "file=@zrzut.png" http://localhost:8000/v1/ocr   # -> 202
+curl.exe http://localhost:9000/results/test-1                                          # wynik
+```
+
+Bez `OCR_CALLBACK_URL` serwis działa synchronicznie: wynik wraca w odpowiedzi `200`.
+
+### Próg pewności
+
+`OCR_MIN_CONFIDENCE` (domyślnie `0.5`, zakres 0–1) to minimalna pewność modelu, od której serwis uznaje, że tekst istnieje. Bloki o niższym `confidence` nie trafiają do `blocks` ani do `text`. Wyższy próg daje mniej fałszywych odczytów, ale słabo widoczny tekst może zostać pominięty.
+
 ### Błędy
 
 Wszystkie błędy mają format `{"error": {"code": "...", "message": "..."}}`:
@@ -302,6 +350,12 @@ Konfiguracja odbywa się wyłącznie przez zmienne środowiskowe (prefiks `OCR_`
 | `OCR_MAX_FILE_BYTES` | `10485760` | Maksymalny rozmiar obrazu (10 MiB); limit całego body wynosi ×4/3 + 64 KiB |
 | `OCR_MAX_PIXELS` | `40000000` | Maksymalna liczba pikseli (ochrona przed decompression bomb) |
 | `OCR_API_KEY` | *(puste)* | Gdy ustawione, `/v1/*` wymaga nagłówka `X-API-Key` |
+| `OCR_MIN_CONFIDENCE` | `0.5` | Minimalna pewność (0–1), od której blok tekstu jest zwracany; niższe są odrzucane |
+| `OCR_CALLBACK_URL` | *(puste)* | Gdy ustawione: `/v1/ocr` odpowiada `202`, a wynik wysyła POST-em na ten URL. Puste = wynik w odpowiedzi |
+| `OCR_CALLBACK_TOKEN` | *(puste)* | Wysyłany do odbiorcy jako `Authorization: Bearer <token>` |
+| `OCR_CALLBACK_TIMEOUT_S` | `10` | Timeout pojedynczej wysyłki callbacku |
+| `OCR_CALLBACK_RETRIES` | `3` | Liczba ponowień przy błędzie sieci, 5xx albo 429 |
+| `OCR_CALLBACK_RETRY_BACKOFF_S` | `1.0` | Pierwszy odstęp między ponowieniami; każdy następny jest 2× dłuższy |
 | `OCR_CORS_ORIGINS` | *(puste)* | Originy przeglądarki z dostępem do API, np. `*` (ustawia je `start-tester.bat` dla strony testowej). Puste = CORS wyłączony |
 | `OCR_PREPROCESS_UPSCALE_TARGET` | `1280` | Obrazy o dłuższym boku poniżej tej wartości są powiększane (`0` = wyłączone) |
 | `OCR_PREPROCESS_MAX_UPSCALE` | `3.0` | Maksymalny współczynnik powiększenia |
@@ -314,7 +368,6 @@ Konfiguracja odbywa się wyłącznie przez zmienne środowiskowe (prefiks `OCR_`
 | `OCR_PADDLE_DEVICE` | `cpu` | `cpu` albo `gpu:0` |
 | `OCR_PADDLE_CPU_THREADS` | `1` | Wątki CPU na workera. `1` daje najwyższą przepustowość pod obciążeniem; więcej skraca pojedyncze żądanie przy małym ruchu |
 | `OCR_PADDLE_ENABLE_MKLDNN` | `auto` | oneDNN: `auto` = włączone poza Windows (na Windows PaddlePaddle 3.x z oneDNN się wywraca) |
-| `OCR_PADDLE_MIN_SCORE` | `0.5` | Bloki z pewnością poniżej progu są odrzucane |
 
 Przy ręcznym ustawianiu `OCR_WORKERS` utrzymuj `OCR_WORKERS × OCR_PADDLE_CPU_THREADS` mniej więcej równe liczbie rdzeni. Więcej oznacza walkę o CPU, mniej oznacza niewykorzystane rdzenie. Szczegóły w [sekcji 9](#9-wydajność-skalowanie-i-ograniczenia).
 
@@ -328,6 +381,7 @@ src/ocr_service/
 ├── app.py               # create_app(): lifespan, middleware, routery
 ├── config.py            # Settings (pydantic-settings)
 ├── api/routes.py        # /v1/ocr, /healthz, /readyz, /metrics
+├── callbacks.py         # tryb callback: 202, OCR w tle, POST wyniku na OCR_CALLBACK_URL z ponowieniami
 ├── service.py           # OcrService: przyjmowanie, kolejka, timeouty, kolejność czytania, metryki
 ├── backends.py          # ProcessBackend (procesy + nadzór) / ThreadBackend
 ├── worker_process.py    # pętla procesu roboczego: model ładowany raz, zadania ze wspólnej kolejki
@@ -388,7 +442,7 @@ Silnik spoza repozytorium można wskazać ścieżką importu: `OCR_ENGINE=moj_pa
 
 API, preprocessing, limity i metryki pozostają bez zmian. Silnik VLM, który nie zwraca współrzędnych, może zwrócić jeden blok z `bbox` całego obrazu.
 
-**Tryb asynchroniczny (kolejka)** nie jest jeszcze potrzebny, ale `OcrService.recognize(bytes, langs, output)` nie zależy od HTTP. Żeby go dodać:
+**Tryb callback** (`OCR_CALLBACK_URL`) przetwarza żądania w tle w tym samym procesie. Nie przetrwa restartu: zadania przyjęte, ale niewysłane, przepadają. Jeśli to będzie potrzebne, `OcrService.recognize(bytes, langs, output)` nie zależy od HTTP, więc można dodać trwałą kolejkę:
 
 1. `POST /v1/jobs` zapisuje obraz w Redisie z TTL i zwraca `job_id`.
 2. Worker (np. `arq`/RQ, osobny proces z tym samym obrazem Dockera) tworzy `OcrService` i woła tę samą metodę.

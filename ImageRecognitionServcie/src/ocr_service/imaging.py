@@ -37,16 +37,21 @@ def sniff_format(data: bytes) -> ImageFormat | None:
     return None
 
 
-def decode_image(data: bytes, max_pixels: int) -> Image.Image:
-    """Validate and decode an uploaded image into an RGB Pillow image."""
+def ensure_supported_format(data: bytes) -> ImageFormat:
+    """Cheap up-front check (magic bytes only) - no decoding."""
     if not data:
         raise ApiError(400, "empty_file", "The uploaded file is empty.")
-
     fmt = sniff_format(data)
     if fmt is None:
         raise ApiError(
             415, "unsupported_media_type", "Unsupported image format. Accepted: PNG, JPEG, WebP."
         )
+    return fmt
+
+
+def decode_image(data: bytes, max_pixels: int) -> Image.Image:
+    """Validate and decode an uploaded image into an RGB Pillow image."""
+    fmt = ensure_supported_format(data)
 
     try:
         with warnings.catch_warnings():

@@ -134,7 +134,10 @@ async function send() {
     const body = await r.json();
     const total = Math.round(performance.now() - started);
     $("json").textContent = JSON.stringify(body, null, 2);
-    if (r.ok) {
+    if (r.status === 202) {
+      $("meta").innerHTML = `<span>HTTP <b class="ok">202</b></span><span>request_id: <b>${body.request_id}</b></span><span>łącznie: <b>${total} ms</b></span>`;
+      $("text").textContent = "Tryb callback: serwis przyjął zdjęcie i wyśle wynik na skonfigurowany OCR_CALLBACK_URL (request_id powyżej).";
+    } else if (r.ok) {
       $("meta").innerHTML = `<span>HTTP <b class="ok">${r.status}</b></span><span>język: <b>${body.lang ?? "—"}</b></span>` +
         `<span>serwer: <b>${body.duration_ms} ms</b></span><span>łącznie: <b>${total} ms</b></span>` +
         `<span>bloków: <b>${body.blocks ? body.blocks.length : "—"}</b></span>`;

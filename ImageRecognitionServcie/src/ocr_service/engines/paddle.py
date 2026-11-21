@@ -80,7 +80,7 @@ class PaddleOcrEngine(OcrEngine):
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
-            text_rec_score_thresh=settings.paddle_min_score,
+            text_rec_score_thresh=settings.min_confidence,
             device=settings.paddle_device,
             enable_mkldnn=settings.mkldnn_enabled,
             cpu_threads=settings.paddle_cpu_threads,

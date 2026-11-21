@@ -15,9 +15,12 @@ from pydantic import ValidationError
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
+from ocr_service.callbacks import CallbackDispatcher
 from ocr_service.config import Settings
 from ocr_service.errors import ApiError, error_response
+from ocr_service.imaging import ensure_supported_format
 from ocr_service.schemas import (
+    AcceptedResponse,
     ErrorResponse,
     HealthResponse,
     OcrJsonRequest,
@@ -109,14 +112,18 @@ _OCR_REQUEST_BODY: dict[str, Any] = {
     "/ocr",
     response_model=OcrResponse,
     tags=["ocr"],
-    summary="Recognise text in an image (synchronous)",
+    summary="Recognise text in an image",
     description=(
         "Send the image either as `multipart/form-data` (field `file`) or as JSON "
         '`{"image": "<base64>"}`. `langs`/`output` can be passed as query parameters '
         "or inside the body (body wins). Accepted formats: PNG, JPEG, WebP (detected by content)."
+        "\n\n**Callback mode** (`OCR_CALLBACK_URL` set): the endpoint answers `202` with a "
+        "`request_id` and the result is POSTed to the configured URL as `CallbackPayload`. "
+        "Format/size/language errors are still returned synchronously."
     ),
     openapi_extra={"requestBody": _OCR_REQUEST_BODY},
     responses={
+        202: {"model": AcceptedResponse, "description": "Callback mode: job accepted."},
         400: _error("Corrupted image, invalid base64 or malformed multipart body."),
         401: _error("Missing or invalid X-API-Key."),
         413: _error("File, body or pixel count exceeds the configured limits."),
@@ -152,6 +159,13 @@ async def ocr(
         )
 
     mode = body_output or output or OutputMode.BLOCKS
+    dispatcher: CallbackDispatcher | None = request.app.state.dispatcher
+    if dispatcher is not None:
+        ensure_supported_format(data)
+        request_id = dispatcher.submit(data, body_langs or langs, mode)
+        accepted = AcceptedResponse(request_id=request_id)
+        return JSONResponse(accepted.model_dump(), status_code=202)
+
     result = await service.recognize(data, langs=body_langs or langs, output=mode)
     exclude = {"blocks"} if mode is OutputMode.TEXT else set()
     return JSONResponse(result.model_dump(exclude=exclude))

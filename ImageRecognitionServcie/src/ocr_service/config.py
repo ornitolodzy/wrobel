@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -110,6 +110,21 @@ class Settings(BaseSettings):
     # Memory budget per worker used to cap OCR_WORKERS=0 (auto) by the container memory limit.
     worker_memory_mb: int = Field(default=700, ge=100)
 
+    # Minimum recognition confidence (0-1) for a text block to be reported at all;
+    # anything below is treated as "no text there".
+    min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    # --- Result delivery ---------------------------------------------------
+    # When set, POST /v1/ocr answers 202 right away and the result is POSTed (JSON) here.
+    # Empty = synchronous mode: the result is returned in the HTTP response.
+    callback_url: AnyHttpUrl | None = None
+    # Optional token sent to the callback receiver as "Authorization: Bearer <token>".
+    callback_token: SecretStr | None = None
+    callback_timeout_s: float = Field(default=10.0, gt=0)
+    # Retries for network errors, 5xx and 429 (exponential backoff from callback_retry_backoff_s).
+    callback_retries: int = Field(default=3, ge=0, le=20)
+    callback_retry_backoff_s: float = Field(default=1.0, ge=0)
+
     # --- Input limits ------------------------------------------------------
     max_file_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
     max_pixels: int = Field(default=40_000_000, ge=10_000)
@@ -138,7 +153,6 @@ class Settings(BaseSettings):
     # cut single-request latency when traffic is low.
     paddle_cpu_threads: int = Field(default=1, ge=1)
     paddle_enable_mkldnn: MkldnnMode = "auto"
-    paddle_min_score: float = Field(default=0.5, ge=0.0, le=1.0)
 
     @field_validator("langs", mode="before")
     @classmethod
@@ -155,7 +169,7 @@ class Settings(BaseSettings):
             return [o.strip() for o in value.split(",") if o.strip()]
         return list(value) if value else []  # type: ignore[call-overload]
 
-    @field_validator("api_key", "model_dir", mode="before")
+    @field_validator("api_key", "model_dir", "callback_url", "callback_token", mode="before")
     @classmethod
     def _empty_to_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():

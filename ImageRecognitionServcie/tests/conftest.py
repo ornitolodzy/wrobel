@@ -91,10 +91,20 @@ ClientFactory = Callable[..., TestClient]
 def make_client() -> Iterator[ClientFactory]:
     clients: list[TestClient] = []
 
-    def factory(engine: OcrEngine | None = None, wait: bool = True, **overrides: Any) -> TestClient:
+    def factory(
+        engine: OcrEngine | None = None,
+        wait: bool = True,
+        callback_transport: Any = None,
+        **overrides: Any,
+    ) -> TestClient:
         settings = make_settings(**overrides)
         eng = engine or FakeEngine()
-        app = create_app(settings, engine_factory=lambda: eng, setup_logging=False)
+        app = create_app(
+            settings,
+            engine_factory=lambda: eng,
+            setup_logging=False,
+            callback_transport=callback_transport,
+        )
         client = TestClient(app, raise_server_exceptions=False)
         client.__enter__()
         clients.append(client)

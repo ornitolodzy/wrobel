@@ -34,6 +34,31 @@ class OcrResponse(BaseModel):
     duration_ms: int = Field(description="Server-side processing time.", examples=[412])
 
 
+class AcceptedResponse(BaseModel):
+    status: str = Field(default="accepted", examples=["accepted"])
+    request_id: str = Field(
+        description="Correlates this request with the callback; set it via X-Request-ID."
+    )
+
+
+class CallbackError(BaseModel):
+    code: str
+    message: str
+
+
+class CallbackPayload(BaseModel):
+    """JSON body POSTed to OCR_CALLBACK_URL."""
+
+    status: str = Field(description="`ok` or `error`.", examples=["ok"])
+    request_id: str
+    text: str | None = None
+    lang: str | None = None
+    blocks: list[Block] | None = None
+    engine: str | None = None
+    duration_ms: int | None = None
+    error: CallbackError | None = None
+
+
 class OcrJsonRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

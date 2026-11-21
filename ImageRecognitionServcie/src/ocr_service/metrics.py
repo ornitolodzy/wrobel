@@ -29,6 +29,14 @@ OCR_QUEUE_WAIT = Histogram(
 ERRORS = Counter("ocr_errors_total", "Error responses by error code.", ["code"])
 INFLIGHT = Gauge("ocr_inflight_requests", "OCR requests admitted (running + waiting).")
 ENGINE_READY = Gauge("ocr_engine_ready", "1 when the OCR engine is loaded and serving.")
+CALLBACKS = Counter(
+    "ocr_callbacks_total", "Result deliveries to OCR_CALLBACK_URL by outcome.", ["result"]
+)
+CALLBACK_LATENCY = Histogram(
+    "ocr_callback_duration_seconds",
+    "Time to deliver one result to the callback URL, retries included.",
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60),
+)
 WORKERS_READY = Gauge("ocr_workers_ready", "Engine workers loaded and accepting work.")
 WORKER_RESTARTS = Counter(
     "ocr_worker_restarts_total", "Worker processes restarted after a crash or a hang."

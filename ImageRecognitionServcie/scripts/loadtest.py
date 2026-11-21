@@ -46,6 +46,8 @@ async def run(
                 if response.status_code == 200:
                     statuses["200"] += 1
                     server_ms.append(response.json()["duration_ms"])
+                elif response.status_code == 202:  # callback mode: accepted, result sent elsewhere
+                    statuses["202"] += 1
                 else:
                     code = response.json().get("error", {}).get("code", "?")
                     statuses[f"{response.status_code} {code}"] += 1
@@ -54,7 +56,7 @@ async def run(
         await asyncio.gather(*(worker() for _ in range(concurrency)))
         elapsed = time.perf_counter() - started
 
-    ok = statuses["200"]
+    ok = statuses["200"] + statuses["202"]
     print(f"requests: {total}, concurrency: {concurrency}, wall: {elapsed:.1f}s")
     print(f"throughput: {ok / elapsed:.2f} img/s (successful)")
     if latencies:

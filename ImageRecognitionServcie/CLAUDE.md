@@ -39,7 +39,9 @@ Request path: `middleware.py` (body size limit, request id, access log, HTTP met
 - **`config.py`**: every setting comes from `OCR_*` env vars (pydantic-settings, `.env` supported). `effective_workers` = `OCR_WORKERS`, or with `0` (auto) cgroup-aware CPUs / `OCR_PADDLE_CPU_THREADS`, capped by memory (`OCR_WORKER_MEMORY_MB`).
 - **Errors** are always `{"error": {"code", "message"}}`; raise `ApiError(status, code, message)` anywhere, including inside workers.
 - **Probes**: `/healthz` answers immediately. `/readyz` returns 200 only once all workers have loaded; models load in the background after startup. `/metrics` exposes Prometheus metrics. `/docs` serves the OpenAPI UI.
-- **Async queue mode** (Redis + worker) is not built yet. `OcrService.recognize(bytes, langs, output)` is transport-agnostic so it can be reused there.
+- **Callback mode** (`callbacks.py`, enabled by `OCR_CALLBACK_URL`): `/v1/ocr` does cheap checks synchronously (format sniff, size, langs, readiness, capacity incl. pending jobs), returns `202 {request_id}`, runs OCR in an asyncio task and POSTs a `CallbackPayload` (`status` ok/error) with retries on network errors/5xx/429. Jobs live in memory only (lost on restart). Tests intercept delivery via `create_app(callback_transport=httpx.MockTransport)`; `examples/callback_receiver.py` is a manual receiver.
+- **Confidence floor**: `OCR_MIN_CONFIDENCE` is applied in `service.py` for every engine (and passed to PaddleOCR as `text_rec_score_thresh`).
+- **Durable async queue mode** (Redis + worker) is not built yet. `OcrService.recognize(bytes, langs, output)` is transport-agnostic so it can be reused there.
 
 ## Gotchas
 

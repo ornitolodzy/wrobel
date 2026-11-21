@@ -105,12 +105,7 @@ class OcrService:
             )
         return requested
 
-    async def recognize(
-        self,
-        data: bytes,
-        langs: str | Sequence[str] | None = None,
-        output: OutputMode = OutputMode.BLOCKS,
-    ) -> OcrResponse:
+    def ensure_ready(self) -> None:
         if not self.ready:
             if self.state is ServiceState.FAILED:
                 message = f"OCR engine failed to load: {self.error}"
@@ -120,9 +115,20 @@ class OcrService:
                 message = "OCR engine is still loading, retry later."
             raise ApiError(503, "not_ready", message, headers={"Retry-After": "5"})
 
+    @property
+    def has_capacity(self) -> bool:
+        return self._admitted < self.capacity + self.settings.max_queue
+
+    async def recognize(
+        self,
+        data: bytes,
+        langs: str | Sequence[str] | None = None,
+        output: OutputMode = OutputMode.BLOCKS,
+    ) -> OcrResponse:
+        self.ensure_ready()
         lang_list = self.resolve_langs(langs)
 
-        if self._admitted >= self.capacity + self.settings.max_queue:
+        if not self.has_capacity:
             raise ApiError(
                 503, "busy", "Too many concurrent OCR requests, retry later.", {"Retry-After": "2"}
             )
@@ -149,7 +155,9 @@ class OcrService:
             self._admitted -= 1
             INFLIGHT.dec()
 
-        lines = group_lines(result.blocks)
+        # Engine-agnostic confidence floor (engines may also filter internally).
+        confident = [b for b in result.blocks if b.confidence >= self.settings.min_confidence]
+        lines = group_lines(confident)
         ordered = [block for line in lines for block in line]
         text = lines_to_text(lines)
         elapsed = time.perf_counter() - started
