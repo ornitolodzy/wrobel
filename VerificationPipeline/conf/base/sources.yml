@@ -1,0 +1,8 @@
+# Source catalog (audited list; task requires >= 100 docs, >= 10 domains, >= 2 source types).
+# type: primary (official) | factcheck | secondary (media)
+sources:
+  - {domain: gov.pl, publisher: "MSZ / gov.pl", type: primary, license: "informacja publiczna", update: daily, active: true}
+  - {domain: isap.sejm.gov.pl, publisher: "ISAP (Sejm RP)", type: primary, license: "informacja publiczna", update: weekly, active: true}
+  - {domain: pism.pl, publisher: "PISM", type: secondary, license: "do sprawdzenia", update: weekly, active: true}
+  - {domain: demagog.org.pl, publisher: "Demagog", type: factcheck, license: "do sprawdzenia", update: daily, active: true}
+  - {domain: euvsdisinfo.eu, publisher: "EUvsDisinfo (ESDZ)", type: factcheck, license: "do sprawdzenia", update: weekly, active: true}

@@ -1,0 +1,46 @@
+# Everything that can be swapped without touching code.
+
+llm:
+  # provider: mock | litellm | nli (nli: stance only). mock = rule-based, no network.
+  # model: any LiteLLM model string, e.g. anthropic/claude-opus-5-5, mistral/mistral-large-latest,
+  #        ollama/bielik, openai/<name> + api_base (vLLM). Real providers: conf/local/parameters.yml.
+  roles:
+    claims:  {provider: mock, model: anthropic/claude-opus-5-5, max_tokens: 2000, timeout_s: 20}
+    stance:  {provider: mock, model: anthropic/claude-opus-5-5, max_tokens: 4000, timeout_s: 25}
+    compose: {provider: mock, model: anthropic/claude-opus-5-5, max_tokens: 800, timeout_s: 15}
+  max_claims: 3
+  prices_per_mtok:          # [input, output] USD; used when LiteLLM has no price for the model
+    anthropic/claude-opus-5-5: [4.00, 20.00]
+    anthropic/claude-sonnet-5-5: [2.00, 10.00]
+    anthropic/claude-haiku-5-5: [0.10, 0.50]
+
+retrieval:
+  backend: mock             # mock | postgres
+  embedding_model: BAAI/bge-m3
+  reranker_model: BAAI/bge-reranker-v2-m3
+  candidates_per_query: 30
+  top_k: 8
+  max_per_document: 2
+  max_per_dup_group: 1
+  rrf_k: 60
+  rerank_min: 0.30          # early stop -> brak_dowodow (calibrate on eval set)
+
+citations:
+  fuzzy_min: 90             # rapidfuzz partial_ratio
+
+policy:
+  source_weights:
+    primary: 1.0
+    factcheck: 0.9
+    secondary: 0.6
+  strong_source: 0.9
+  archive_after_days: 365
+
+ingestion:
+  sources_path: conf/base/sources.yml
+  chunk_chars: 1200
+  chunk_overlap: 150
+
+eval:
+  cases_path: tests/eval/cases.jsonl
+  report_path: data/eval/report.json
