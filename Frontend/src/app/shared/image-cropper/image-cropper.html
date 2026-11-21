@@ -1,0 +1,41 @@
+<dialog #dlg class="dlg" aria-labelledby="crop-title" (cancel)="cancel($event)">
+  <h2 id="crop-title">Dotnij zdjęcie</h2>
+
+  <div
+    #stage
+    class="stage"
+    (pointermove)="move($event)"
+    (pointerup)="end()"
+    (pointercancel)="end()"
+  >
+    <img
+      #img
+      [src]="src()"
+      alt="Zdjęcie do docięcia"
+      draggable="false"
+      (load)="loaded.set(true)"
+    />
+    @if (loaded()) {
+      <div
+        class="crop"
+        [style.left.%]="rect().x * 100"
+        [style.top.%]="rect().y * 100"
+        [style.width.%]="rect().w * 100"
+        [style.height.%]="rect().h * 100"
+        (pointerdown)="start($event, 'move')"
+      >
+        <span class="h nw" (pointerdown)="start($event, 'nw')"></span>
+        <span class="h ne" (pointerdown)="start($event, 'ne')"></span>
+        <span class="h sw" (pointerdown)="start($event, 'sw')"></span>
+        <span class="h se" (pointerdown)="start($event, 'se')"></span>
+      </div>
+    }
+  </div>
+
+  <div class="actions">
+    <button type="button" class="btn ghost" (click)="cancel()">Anuluj</button>
+    <button type="button" class="btn primary" [disabled]="!loaded()" (click)="confirm()">
+      Gotowe
+    </button>
+  </div>
+</dialog>

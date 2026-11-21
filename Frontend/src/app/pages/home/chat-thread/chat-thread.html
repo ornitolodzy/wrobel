@@ -1,0 +1,40 @@
+<div class="msg user">
+  @if (imageUrl(); as url) {
+    <img class="thumb" [src]="url" alt="Dołączone zdjęcie" />
+  }
+  @if (query()) {
+    <p>{{ query() }}</p>
+  }
+</div>
+
+<div class="msg bot" aria-live="polite">
+  <img class="avatar" src="/logo.png" width="40" height="40" alt="" />
+
+  @if (results(); as list) {
+    <div class="bubble results">
+      @for (r of list; track r.id) {
+        <article class="result">
+          <a [href]="r.url" rel="noopener">{{ r.title }}</a>
+          @if (r.snippet) {
+            <p>{{ r.snippet }}</p>
+          }
+          @if (r.source || r.date) {
+            <small class="meta"
+              >{{ r.source }}
+              @if (r.date) {
+                · {{ r.date }}
+              }
+            </small>
+          }
+        </article>
+      } @empty {
+        <p class="meta">Brak wyników.</p>
+      }
+    </div>
+  } @else {
+    <div class="bubble" role="status">
+      <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>{{ status() === 'open' ? 'Szukam odpowiedzi…' : 'Łączenie z serwerem…' }}</span>
+    </div>
+  }
+</div>
