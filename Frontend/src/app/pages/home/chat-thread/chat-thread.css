@@ -150,6 +150,44 @@
   margin: 4px 0;
 }
 
+.claim {
+  margin: 4px 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.sources {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.source {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.source blockquote {
+  margin: 2px 0;
+  padding-left: 10px;
+  border-left: 3px solid color-mix(in srgb, var(--prawdowid-border-light) 70%, transparent);
+  font-size: 14px;
+  color: var(--prawdowid-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.source .link {
+  font-family: var(--prawdowid-font-mono);
+  font-size: var(--prawdowid-fs-meta);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
 .meta {
   font-family: var(--prawdowid-font-mono);
   font-size: var(--prawdowid-fs-meta);

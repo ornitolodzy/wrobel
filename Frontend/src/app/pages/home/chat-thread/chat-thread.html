@@ -33,11 +33,44 @@
         @if (m.results; as list) {
           @for (r of list; track r.id) {
             <article class="result">
-              <a [href]="r.url" rel="noopener">{{ r.title }}</a>
+              @if (r.verdict && list.length > 1) {
+                <app-verdict-tag [verdict]="r.verdict" />
+              }
+              @if (r.sources?.length || r.url === '#') {
+                <h3 class="claim">{{ r.title }}</h3>
+              } @else {
+                <a [href]="r.url" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+              }
+              @if (r.strength) {
+                <small class="meta">siła przesłanek: {{ r.strength }}</small>
+              }
               @if (r.snippet) {
                 <p>{{ r.snippet }}</p>
               }
-              @if (r.source || r.date) {
+              @if (r.sources?.length) {
+                <ol class="sources" aria-label="Źródła">
+                  @for (s of r.sources; track $index) {
+                    <li class="source">
+                      <a [href]="s.url" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>
+                      <small class="meta">
+                        {{ s.publisher ?? s.host }}
+                        @if (s.date) {
+                          · {{ s.date }}
+                        }
+                        @if (s.kind) {
+                          · {{ s.kind }}
+                        }
+                      </small>
+                      @if (s.quote) {
+                        <blockquote>„{{ s.quote }}”</blockquote>
+                      }
+                      <a class="link" [href]="s.url" target="_blank" rel="noopener noreferrer">{{
+                        s.url
+                      }}</a>
+                    </li>
+                  }
+                </ol>
+              } @else if (r.source || r.date) {
                 <small class="meta"
                   >{{ r.source }}
                   @if (r.date) {

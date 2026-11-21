@@ -10,8 +10,8 @@ S       ?=
 help: ## lista celów
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
-start: ## pełny start ze sprawdzeniem połączeń i pierwszym pobraniem źródeł
-	./start.sh
+start: ## pełny start ze sprawdzeniem połączeń (make start ARGS="--graph --no-build")
+	./start.sh $(ARGS)
 
 up: ## build + start całego stacku
 	$(DC) up -d --build

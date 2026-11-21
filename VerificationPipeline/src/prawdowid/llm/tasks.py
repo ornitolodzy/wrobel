@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from prawdowid.models import Claim, ClaimType, Evidence, StanceLabel, Stance, Verdict
 
@@ -45,6 +45,21 @@ class StanceItem(BaseModel):
 class StanceOut(BaseModel):
     items: list[StanceItem]
     injection_suspected: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_broken_items(cls, data):
+        # Small local models (Bielik Q4) sometimes emit one incomplete item (no source_id, quote null).
+        # Dropping it leaves that source unjudged (weaker verdict) instead of failing the whole check.
+        if isinstance(data, dict) and isinstance(data.get("items"), list):
+            kept = []
+            for item in data["items"]:
+                try:
+                    kept.append(StanceItem.model_validate(item))
+                except ValidationError:
+                    continue
+            data = {**data, "items": kept}
+        return data
 
 
 class ExplainSentence(BaseModel):

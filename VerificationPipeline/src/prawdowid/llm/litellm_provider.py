@@ -25,7 +25,7 @@ _REFUSAL_FINISH = {"content_filter", "refusal"}
 
 class LiteLLMProvider:
     """Role config keys: model, api_base, api_key, max_tokens, timeout_s, temperature,
-    json_mode (auto | schema | object). Omit temperature for current Claude models.
+    json_mode (auto | schema | object | example). Omit temperature for current Claude models.
     """
 
     def __init__(self, role_cfg: dict, prices_per_mtok: dict | None = None):
@@ -52,9 +52,11 @@ class LiteLLMProvider:
             parsed = schema.model_validate_json(content)
         except ValidationError as err:
             # One repair attempt with the validation error (models without strict schema).
-            messages += [{"role": "assistant", "content": content},
-                         {"role": "user", "content": f"Odpowiedź nie pasuje do schematu: {err}. "
-                                                     "Zwróć poprawiony JSON i nic więcej."}]
+            # example mode (small context windows): plain retry, appending the bad answer would overflow.
+            if self.json_mode != "example":
+                messages += [{"role": "assistant", "content": content},
+                             {"role": "user", "content": f"Odpowiedź nie pasuje do schematu: {err}. "
+                                                         "Zwróć poprawiony JSON i nic więcej."}]
             resp = self._complete(messages, schema)
             content = self._content(resp)
             try:
@@ -68,6 +70,11 @@ class LiteLLMProvider:
     def _system(self, system: str, schema: type[BaseModel]) -> str:
         if self.json_mode == "schema":
             return system
+        if self.json_mode == "example":
+            # Small local models (Bielik Q4) sometimes echo a JSON Schema back; an example they fill in.
+            return (f"{system}\n\nOdpowiedz wyłącznie jednym obiektem JSON o tej strukturze "
+                    f"(wartości są przykładowe, a|b oznacza jedną z wartości):\n"
+                    f"{json.dumps(example_json(schema), ensure_ascii=False)}")
         # No native schema support: put the schema in the prompt, validate afterwards.
         return f"{system}\n\nSchemat JSON odpowiedzi:\n{json.dumps(strict_schema(schema), ensure_ascii=False)}"
 
@@ -147,6 +154,32 @@ def strict_schema(schema: type[BaseModel]) -> dict:
 
     fix(root)
     return root
+
+
+def example_json(schema: type[BaseModel]):
+    """Example instance of a Pydantic schema (json_mode: example): one item per list, enums as a|b."""
+    root = schema.model_json_schema()
+    defs = root.get("$defs", {})
+
+    def ex(node: dict):
+        if "$ref" in node:
+            return ex(defs[node["$ref"].rsplit("/", 1)[-1]])
+        if "enum" in node:
+            return "|".join(str(v) for v in node["enum"])
+        if "const" in node:
+            return node["const"]
+        for key in ("anyOf", "oneOf", "allOf"):
+            if key in node:
+                options = [o for o in node[key] if o.get("type") != "null"] or node[key]
+                return ex(options[0])
+        kind = node.get("type")
+        if kind == "object":
+            return {k: ex(v) for k, v in node.get("properties", {}).items()}
+        if kind == "array":
+            return [ex(node.get("items", {}))]
+        return {"integer": 1, "number": 0.5, "boolean": False, "null": None}.get(kind, "...")
+
+    return ex(root)
 
 
 def _strip_fences(text: str) -> str:

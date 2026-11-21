@@ -94,6 +94,7 @@ make start            # to samo co ./start.sh
 |---|---|
 | `--no-build` | start bez przebudowy obrazów |
 | `--no-scrape` | bez pierwszego pobrania źródeł |
+| `--graph` | dodatkowo ContextGraph + Neo4j (profil `graph`) i kopia dokumentów scrappera do grafu |
 
 Zmienne: `ADMIN_API_KEY`, `WAIT_TIMEOUT` (sekundy, domyślnie 900). Bez skryptu: `docker compose up -d --build`.
 
@@ -405,6 +406,8 @@ Mapowanie werdyktów pipeline'u na kontrakt gatewaya: `potwierdzone` → `confir
 | `SCRAPE_ON_STARTUP` | page-scrapper | `false` | czy pobierać źródła zaraz po starcie |
 | `RAG_INGEST_URL` | page-scrapper | `http://verification-pipeline:8000/ingest` | gdzie wysyłać nowe dokumenty do indeksu |
 | `PRAWDOWID_LLM_PROVIDER` / `PRAWDOWID_LLM_MODEL` | verification-pipeline | z `.env`; puste = `mock` | model LLM wszystkich ról (LiteLLM: `anthropic/...`, `mistral/...`, `openai/...` + `PRAWDOWID_LLM_API_BASE`) |
+| `PRAWDOWID_LLM_JSON_MODE` | verification-pipeline | puste = `auto` | `example`: przykład JSON w prompcie zamiast schematu (Bielik Q4 czasem odsyła schemat) |
+| `PRAWDOWID_RETRIEVAL_TOP_K` / `PRAWDOWID_MAX_CONTEXT_CHARS` | verification-pipeline | puste = `conf/` (8 / 12000) | mniej dowodów w prompcie dla modeli z małym oknem (Bielik w Ollamie: 4096 tokenów → `5` / `4500`) |
 | `PRAWDOWID_ENV` | verification-pipeline | `docker` | nakładka [conf/docker/parameters.yml](VerificationPipeline/conf/docker/parameters.yml): retrieval z Postgresa, embeddingi `mock` |
 | `PRAWDOWID_SYNC_ON_STARTUP` | verification-pipeline | `true` | przy starcie indeksuje dokumenty zebrane wcześniej przez scrapper |
 | `OCR_LANGS` | ocr | `pl,en` | języki OCR |
