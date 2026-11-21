@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 
 from ocr_service.config import Settings
@@ -23,11 +24,29 @@ ENGINES: dict[str, EngineFactory] = {
 }
 
 
-def create_engine(settings: Settings) -> OcrEngine:
+def _from_import_path(path: str) -> EngineFactory:
+    """``package.module:ClassOrFactory`` - a callable taking Settings and returning an engine.
+
+    Works across process boundaries (worker processes re-import it), which makes it suitable
+    for out-of-tree plugins and test doubles.
+    """
+    module_name, _, attr = path.partition(":")
     try:
-        factory = ENGINES[settings.engine]
+        factory: EngineFactory = getattr(importlib.import_module(module_name), attr)
+    except (ImportError, AttributeError) as exc:
+        raise ValueError(f"Cannot import OCR engine {path!r}: {exc}") from exc
+    return factory
+
+
+def create_engine(settings: Settings) -> OcrEngine:
+    name = settings.engine
+    if ":" in name:
+        return _from_import_path(name)(settings)
+    try:
+        factory = ENGINES[name]
     except KeyError:
         raise ValueError(
-            f"Unknown OCR engine {settings.engine!r}. Available: {sorted(ENGINES)}"
+            f"Unknown OCR engine {name!r}. Available: {sorted(ENGINES)} "
+            "or an import path 'package.module:Class'."
         ) from None
     return factory(settings)

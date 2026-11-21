@@ -10,24 +10,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ocr_service.exceptions import ApiError
 from ocr_service.metrics import ERRORS
 
+__all__ = ["ApiError", "error_payload", "error_response", "install_error_handlers"]
+
 logger = logging.getLogger(__name__)
-
-
-class ApiError(Exception):
-    def __init__(
-        self,
-        status_code: int,
-        code: str,
-        message: str,
-        headers: Mapping[str, str] | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.code = code
-        self.message = message
-        self.headers = dict(headers or {})
 
 
 def error_payload(code: str, message: str) -> dict[str, dict[str, str]]:

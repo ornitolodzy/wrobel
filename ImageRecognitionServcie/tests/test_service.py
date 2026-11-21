@@ -6,10 +6,15 @@ import asyncio
 
 import pytest
 
+from ocr_service.backends import ThreadBackend
 from ocr_service.errors import ApiError
 from ocr_service.schemas import OutputMode
 from ocr_service.service import OcrService
 from tests.conftest import FakeEngine, image_bytes, make_settings
+
+
+def make_service(settings, factory):  # type: ignore[no-untyped-def]
+    return OcrService(settings, ThreadBackend(settings, factory))
 
 
 async def _started(service: OcrService) -> OcrService:
@@ -21,7 +26,7 @@ async def _started(service: OcrService) -> OcrService:
 def test_rejects_when_queue_is_full() -> None:
     async def scenario() -> None:
         service = await _started(
-            OcrService(make_settings(workers=1, max_queue=0), lambda: FakeEngine(delay_s=0.3))
+            make_service(make_settings(workers=1, max_queue=0), lambda: FakeEngine(delay_s=0.3))
         )
         data = image_bytes()
         results = await asyncio.gather(
@@ -39,7 +44,7 @@ def test_rejects_when_queue_is_full() -> None:
 def test_queue_timeout() -> None:
     async def scenario() -> None:
         service = await _started(
-            OcrService(
+            make_service(
                 make_settings(workers=1, max_queue=4, queue_timeout_s=0.05),
                 lambda: FakeEngine(delay_s=0.4),
             )
@@ -58,7 +63,7 @@ def test_queue_timeout() -> None:
 def test_workers_run_in_parallel() -> None:
     async def scenario() -> None:
         service = await _started(
-            OcrService(make_settings(workers=2), lambda: FakeEngine(delay_s=0.3))
+            make_service(make_settings(workers=2), lambda: FakeEngine(delay_s=0.3))
         )
         loop = asyncio.get_running_loop()
         started = loop.time()
@@ -74,7 +79,7 @@ def test_service_is_reusable_without_http() -> None:
     """The same call a future queue worker would make."""
 
     async def scenario() -> None:
-        service = await _started(OcrService(make_settings(), FakeEngine))
+        service = await _started(make_service(make_settings(), FakeEngine))
         result = await service.recognize(image_bytes(), langs=["en"], output=OutputMode.TEXT)
         assert result.text
         assert result.lang == "en"
@@ -90,14 +95,14 @@ def test_engine_crash_is_reported_as_500() -> None:
             raise RuntimeError("boom")
 
     async def scenario() -> None:
-        service = await _started(OcrService(make_settings(), Broken))
+        service = await _started(make_service(make_settings(), Broken))
         with pytest.raises(ApiError) as info:
             await service.recognize(image_bytes())
         assert info.value.status_code == 500
         assert info.value.code == "ocr_failed"
-        # the engine went back to the pool
-        assert service._pool is not None
-        assert service._pool.qsize() == 1
+        # the engine went back to the pool: the next request is served again
+        with pytest.raises(ApiError):
+            await service.recognize(image_bytes())
         await service.stop()
 
     asyncio.run(scenario())

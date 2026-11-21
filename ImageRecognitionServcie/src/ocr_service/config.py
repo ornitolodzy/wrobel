@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+import os
 import sys
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator
@@ -26,6 +29,53 @@ def parse_lang_list(value: object) -> list[str]:
     return result
 
 
+def _cgroup_cpu_limit() -> float | None:
+    """CPU quota of the container (cgroup v2, then v1); None when unlimited/unknown."""
+    try:
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()[:2]
+        if quota != "max":
+            return int(quota) / int(period)
+        return None
+    except (OSError, ValueError):
+        pass
+    try:
+        quota_us = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+        period_us = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+        return quota_us / period_us if quota_us > 0 else None
+    except (OSError, ValueError):
+        return None
+
+
+def available_cpus() -> int:
+    """CPUs this process may actually use: affinity mask, capped by the container CPU quota."""
+    try:
+        cpus = len(os.sched_getaffinity(0))  # type: ignore[attr-defined,unused-ignore]
+    except AttributeError:  # Windows / macOS
+        cpus = os.cpu_count() or 1
+    limit = _cgroup_cpu_limit()
+    if limit is not None:
+        cpus = min(cpus, max(1, math.floor(limit)))
+    return max(1, cpus)
+
+
+def available_memory_mb() -> int | None:
+    """Memory limit of the container (cgroup v2/v1) or physical RAM on Linux; None if unknown."""
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if raw.isdigit() and int(raw) < 1 << 60:  # cgroup v1 reports "unlimited" as ~2^63
+            return int(raw) // (1024 * 1024)
+    sysconf = getattr(os, "sysconf", None)  # Unix only
+    if sysconf is None:
+        return None
+    try:
+        return int(sysconf("SC_PAGE_SIZE")) * int(sysconf("SC_PHYS_PAGES")) // (1024 * 1024)
+    except (ValueError, OSError):
+        return None
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="OCR_",
@@ -44,12 +94,21 @@ class Settings(BaseSettings):
     engine: str = "paddleocr"
     langs: Annotated[list[str], NoDecode] = Field(default_factory=lambda: ["pl", "en"])
 
-    # Number of engine instances loaded at start-up == max number of images OCR-ed in parallel.
-    workers: int = Field(default=1, ge=1, le=64)
-    # How many requests may wait for a free engine before new ones are rejected with 503.
-    max_queue: int = Field(default=16, ge=0)
-    # How long (seconds) a request may wait for a free engine.
+    # process = each engine instance lives in its own worker process (scales across cores,
+    #           no GIL contention, crashed/hung workers are restarted) - recommended;
+    # thread  = engine instances in threads of the API process (debugging / tests).
+    executor: Literal["process", "thread"] = "process"
+    # Engine instances == max images OCR-ed in parallel. 0 = auto: available CPUs (cgroup-aware)
+    # divided by paddle_cpu_threads.
+    workers: int = Field(default=0, ge=0, le=256)
+    # How many requests may wait for a free worker before new ones are rejected with 503.
+    max_queue: int = Field(default=64, ge=0)
+    # How long (seconds) a request may wait for a free worker.
     queue_timeout_s: float = Field(default=30.0, gt=0)
+    # Max time for one image inside a worker; a hung process worker is killed and restarted.
+    task_timeout_s: float = Field(default=120.0, gt=0)
+    # Memory budget per worker used to cap OCR_WORKERS=0 (auto) by the container memory limit.
+    worker_memory_mb: int = Field(default=700, ge=100)
 
     # --- Input limits ------------------------------------------------------
     max_file_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
@@ -72,7 +131,9 @@ class Settings(BaseSettings):
     paddle_det_model: str = "PP-OCRv5_mobile_det"
     paddle_rec_model: str = "latin_PP-OCRv5_mobile_rec"
     paddle_device: str = "cpu"
-    paddle_cpu_threads: int = Field(default=4, ge=1)
+    # Threads per worker. 1 = best throughput under load (one worker per core); raise it to
+    # cut single-request latency when traffic is low.
+    paddle_cpu_threads: int = Field(default=1, ge=1)
     paddle_enable_mkldnn: MkldnnMode = "auto"
     paddle_min_score: float = Field(default=0.5, ge=0.0, le=1.0)
 
@@ -97,6 +158,16 @@ class Settings(BaseSettings):
         if self.paddle_enable_mkldnn == "auto":
             return sys.platform != "win32" and self.paddle_device.startswith("cpu")
         return self.paddle_enable_mkldnn == "true"
+
+    @property
+    def effective_workers(self) -> int:
+        if self.workers > 0:
+            return self.workers
+        by_cpu = available_cpus() // self.paddle_cpu_threads
+        memory = available_memory_mb()
+        # ~512 MB stays reserved for the API process itself.
+        by_memory = (memory - 512) // self.worker_memory_mb if memory else by_cpu
+        return max(1, min(by_cpu, by_memory))
 
     @property
     def max_request_bytes(self) -> int:

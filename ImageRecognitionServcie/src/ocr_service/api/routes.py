@@ -7,6 +7,7 @@ import binascii
 import sys
 from typing import Annotated, Any
 
+import anyio.to_thread
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -72,7 +73,9 @@ async def readyz(service: Annotated[OcrService, Depends(get_service)]) -> Any:
     return ReadyResponse(
         status="ready",
         engine=service.engine_name,
-        workers=service.settings.workers,
+        executor=type(service.backend).__name__.removesuffix("Backend").lower(),
+        workers=service.capacity,
+        workers_ready=service.backend.ready_workers,
         langs=sorted(service.supported_langs),
     )
 
@@ -182,6 +185,13 @@ async def _read_json(
     request: Request, settings: Settings
 ) -> tuple[bytes, str | None, OutputMode | None]:
     body = await request.body()
+    # JSON parsing + base64 decoding of a multi-MB body is CPU work: keep it off the event loop.
+    return await anyio.to_thread.run_sync(_decode_json_body, body, settings)
+
+
+def _decode_json_body(
+    body: bytes, settings: Settings
+) -> tuple[bytes, str | None, OutputMode | None]:
     try:
         payload = OcrJsonRequest.model_validate_json(body)
     except ValidationError as exc:

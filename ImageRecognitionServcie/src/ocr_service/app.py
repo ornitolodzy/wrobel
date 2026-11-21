@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from ocr_service import __version__
 from ocr_service.api import router, v1
+from ocr_service.backends import Backend, ProcessBackend, ThreadBackend
 from ocr_service.config import Settings, get_settings
 from ocr_service.engines import OcrEngine, create_engine
 from ocr_service.errors import install_error_handlers
@@ -26,6 +27,17 @@ no external APIs. Engine: PaddleOCR (pluggable via `OCR_ENGINE`).
 """
 
 
+def create_backend(
+    settings: Settings, engine_factory: Callable[[], OcrEngine] | None = None
+) -> Backend:
+    """An explicit in-process ``engine_factory`` (tests, embedding) implies the thread backend."""
+    if engine_factory is not None:
+        return ThreadBackend(settings, engine_factory)
+    if settings.executor == "process":
+        return ProcessBackend(settings)
+    return ThreadBackend(settings, lambda: create_engine(settings))
+
+
 def create_app(
     settings: Settings | None = None,
     engine_factory: Callable[[], OcrEngine] | None = None,
@@ -36,8 +48,7 @@ def create_app(
     if setup_logging:
         configure_logging(settings.log_level, settings.log_json)
 
-    factory = engine_factory or (lambda: create_engine(settings))
-    service = OcrService(settings, factory)
+    service = OcrService(settings, create_backend(settings, engine_factory))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

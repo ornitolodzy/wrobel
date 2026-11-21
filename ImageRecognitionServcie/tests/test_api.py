@@ -32,7 +32,9 @@ def test_readyz_ready(client: TestClient) -> None:
     assert response.json() == {
         "status": "ready",
         "engine": "fake",
+        "executor": "thread",
         "workers": 1,
+        "workers_ready": 1,
         "langs": ["en", "pl"],
     }
 

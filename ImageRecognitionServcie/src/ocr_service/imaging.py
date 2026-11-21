@@ -15,7 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from ocr_service.errors import ApiError
+from ocr_service.exceptions import ApiError
 
 RgbImage = NDArray[np.uint8]
 

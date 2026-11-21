@@ -19,7 +19,7 @@ Działa w całości na własnym sprzęcie, bez zewnętrznych API. Wagi modeli po
 6. [Zmienne środowiskowe](#6-zmienne-środowiskowe)
 7. [Architektura i rozbudowa](#7-architektura-i-rozbudowa)
 8. [Testy i jakość kodu](#8-testy-i-jakość-kodu)
-9. [Wydajność i ograniczenia](#9-wydajność-i-ograniczenia)
+9. [Wydajność, skalowanie i ograniczenia](#9-wydajność-skalowanie-i-ograniczenia)
 
 ---
 
@@ -87,8 +87,8 @@ Obraz CPU jest wieloetapowy:
 docker build -t screenscrapper-ocr .
 docker run --rm -p 8000:8000 screenscrapper-ocr
 
-# z kluczem API i 2 równoległymi workerami:
-docker run --rm -p 8000:8000 -e OCR_API_KEY=tajny -e OCR_WORKERS=2 -e OCR_PADDLE_CPU_THREADS=2 screenscrapper-ocr
+# z kluczem API; liczba workerów dobiera się sama do --cpus / --memory:
+docker run --rm -p 8000:8000 --cpus 8 --memory 8g -e OCR_API_KEY=tajny screenscrapper-ocr
 
 # bez dostępu do sieci (dowód, że runtime jest offline):
 docker run --rm --network none screenscrapper-ocr
@@ -282,9 +282,12 @@ Konfiguracja odbywa się wyłącznie przez zmienne środowiskowe (prefiks `OCR_`
 | `OCR_LOG_JSON` | `true` | Logi JSON (`false` = czytelny tekst) |
 | `OCR_ENGINE` | `paddleocr` | Silnik OCR (rejestr w `engines/registry.py`) |
 | `OCR_LANGS` | `pl,en` | Obsługiwane języki; domyślne dla żądań bez `langs` |
-| `OCR_WORKERS` | `1` | Liczba instancji silnika = liczba obrazów przetwarzanych równolegle. Każda instancja zajmuje ok. 300–500 MB RAM. |
-| `OCR_MAX_QUEUE` | `16` | Ile żądań może czekać na wolny silnik; ponad to `503 busy` |
-| `OCR_QUEUE_TIMEOUT_S` | `30` | Maksymalne oczekiwanie na silnik; potem `503 queue_timeout` |
+| `OCR_EXECUTOR` | `process` | `process`: każdy worker to osobny proces z własnym modelem (zalecane). `thread`: wątki w procesie API (debugowanie, ograniczone przez GIL) |
+| `OCR_WORKERS` | `0` (auto) | Liczba workerów = liczba obrazów przetwarzanych równolegle. `0` = dostępne CPU (z limitem kontenera) / `OCR_PADDLE_CPU_THREADS`, ograniczone też pamięcią |
+| `OCR_WORKER_MEMORY_MB` | `700` | Budżet RAM na workera przy `OCR_WORKERS=0`; 512 MB zostaje dla procesu API |
+| `OCR_MAX_QUEUE` | `64` | Ile żądań może czekać na wolnego workera; ponad to `503 busy` |
+| `OCR_QUEUE_TIMEOUT_S` | `30` | Maksymalne oczekiwanie na workera; potem `503 queue_timeout` |
+| `OCR_TASK_TIMEOUT_S` | `120` | Maksymalny czas OCR jednego obrazu; potem `504 ocr_timeout`, a zawieszony worker jest zabijany i restartowany |
 | `OCR_MAX_FILE_BYTES` | `10485760` | Maksymalny rozmiar obrazu (10 MiB); limit całego body wynosi ×4/3 + 64 KiB |
 | `OCR_MAX_PIXELS` | `40000000` | Maksymalna liczba pikseli (ochrona przed decompression bomb) |
 | `OCR_API_KEY` | *(puste)* | Gdy ustawione, `/v1/*` wymaga nagłówka `X-API-Key` |
@@ -297,11 +300,11 @@ Konfiguracja odbywa się wyłącznie przez zmienne środowiskowe (prefiks `OCR_`
 | `OCR_PADDLE_DET_MODEL` | `PP-OCRv5_mobile_det` | Model detekcji tekstu |
 | `OCR_PADDLE_REC_MODEL` | `latin_PP-OCRv5_mobile_rec` | Model rozpoznawania (alfabet łaciński, w tym polskie znaki) |
 | `OCR_PADDLE_DEVICE` | `cpu` | `cpu` albo `gpu:0` |
-| `OCR_PADDLE_CPU_THREADS` | `4` | Wątki CPU na instancję silnika |
+| `OCR_PADDLE_CPU_THREADS` | `1` | Wątki CPU na workera. `1` daje najwyższą przepustowość pod obciążeniem; więcej skraca pojedyncze żądanie przy małym ruchu |
 | `OCR_PADDLE_ENABLE_MKLDNN` | `auto` | oneDNN: `auto` = włączone poza Windows (na Windows PaddlePaddle 3.x z oneDNN się wywraca) |
 | `OCR_PADDLE_MIN_SCORE` | `0.5` | Bloki z pewnością poniżej progu są odrzucane |
 
-Gdy `OCR_WORKERS > 1`, ustaw `OCR_WORKERS × OCR_PADDLE_CPU_THREADS` mniej więcej równe liczbie rdzeni. Uvicorn działa w jednym procesie, bo model ładowany jest raz na proces. Skaluj przez `OCR_WORKERS` albo więcej replik kontenera.
+Przy ręcznym ustawianiu `OCR_WORKERS` utrzymuj `OCR_WORKERS × OCR_PADDLE_CPU_THREADS` mniej więcej równe liczbie rdzeni. Więcej oznacza walkę o CPU, mniej oznacza niewykorzystane rdzenie. Szczegóły w [sekcji 9](#9-wydajność-skalowanie-i-ograniczenia).
 
 ---
 
@@ -313,7 +316,10 @@ src/ocr_service/
 ├── app.py               # create_app(): lifespan, middleware, routery
 ├── config.py            # Settings (pydantic-settings)
 ├── api/routes.py        # /v1/ocr, /healthz, /readyz, /metrics
-├── service.py           # OcrService: pula silników, limity, kolejność czytania, metryki
+├── service.py           # OcrService: przyjmowanie, kolejka, timeouty, kolejność czytania, metryki
+├── backends.py          # ProcessBackend (procesy + nadzór) / ThreadBackend
+├── worker_process.py    # pętla procesu roboczego: model ładowany raz, zadania ze wspólnej kolejki
+├── pipeline.py          # dekodowanie -> preprocessing -> OCR -> współrzędne (wewnątrz workera)
 ├── imaging.py           # magic bytes, limity pikseli, EXIF, RGB, upscaling, ciemny motyw
 ├── text.py              # kolejność czytania, detekcja języka pl/en
 ├── engines/
@@ -321,7 +327,8 @@ src/ocr_service/
 │   ├── registry.py      # OCR_ENGINE -> fabryka silnika
 │   └── paddle.py        # PaddleOCR 3.x
 ├── middleware.py        # request id, access log, metryki HTTP, limit rozmiaru body
-├── errors.py            # ApiError + jednolity format błędów
+├── exceptions.py        # ApiError (bez zależności od frameworka, przechodzi między procesami)
+├── errors.py            # handlery FastAPI + jednolity format błędów
 ├── security.py          # X-API-Key
 ├── logging_setup.py     # logi JSON (też uvicorn i paddle)
 └── download_models.py   # pobranie i rozgrzanie modeli (Docker build, CI)
@@ -329,20 +336,43 @@ src/ocr_service/
 
 **Przepływ żądania:**
 
-1. Middleware odrzuca za duże body.
-2. Endpoint rozpoznaje multipart lub JSON. Multipart jest parsowany w pamięci: obrazy nigdy nie trafiają na dysk.
-3. `OcrService.recognize()` wykonuje dekodowanie i preprocessing w threadpoolu.
-4. Serwis pobiera wolną instancję silnika z puli. Jeśli żadna nie jest wolna, żądanie czeka; przy pełnej kolejce lub po przekroczeniu czasu dostaje `503`.
-5. `engine.recognize()` działa w threadpoolu.
-6. Współrzędne są przeliczane na oryginał, a bloki układane w kolejności czytania.
+```
+            ┌─────────────── proces API (asyncio, tylko I/O) ───────────────┐
+ HTTP ──▶   │ limit body → parsowanie → OcrService: przyjęcie (503 busy)    │
+            │   → czekanie na slot (≤ OCR_WORKERS, 503 queue_timeout)       │
+            │   → wspólna kolejka zadań ───────────────┐                    │
+            │   ← kolejność czytania, język, metryki ◀─┼── kolejka wyników  │
+            └──────────────────────────────────────────┼────────────────────┘
+                     ┌──────────────┬──────────────────┴┬─────────────────┐
+                     ▼              ▼                   ▼                 ▼
+                 worker 0       worker 1     ...    worker N-1     (osobne procesy,
+                 model PP-OCR   model PP-OCR        model PP-OCR    każdy z własnym modelem)
+                 dekodowanie → preprocessing → OCR → współrzędne
+```
 
-Pętla zdarzeń nie jest blokowana. Model ładowany jest raz, w tle po starcie procesu, dlatego `/healthz` działa od razu, a `/readyz` czeka na model.
+1. Middleware odrzuca za duże body.
+2. Endpoint rozpoznaje multipart lub JSON. Multipart jest parsowany w pamięci (obrazy nigdy nie trafiają na dysk), base64 jest dekodowane poza pętlą zdarzeń.
+3. `OcrService.recognize()` przyjmuje żądanie albo zwraca `503 busy`, gdy czeka już `OCR_MAX_QUEUE` żądań.
+4. Żądanie czeka na wolny slot, maksymalnie `OCR_QUEUE_TIMEOUT_S`. Do workerów trafia naraz najwyżej tyle obrazów, ile jest workerów.
+5. Wolny worker pobiera zadanie ze wspólnej kolejki, więc obciążenie samo się równoważy. Worker wykonuje dekodowanie, preprocessing, OCR i przeliczenie współrzędnych. Cała praca CPU dzieje się poza procesem API, bez GIL.
+6. Proces API układa bloki w kolejności czytania i wykrywa język.
+
+**Nadzór nad workerami:**
+
+- **Crash** (np. segfault w bibliotece natywnej): tylko to jedno żądanie dostaje `500 worker_crashed`, a worker jest restartowany z wykładniczym backoffem.
+- **Zawieszenie:** po `OCR_TASK_TIMEOUT_S` żądanie dostaje `504 ocr_timeout`, a worker jest zabijany i restartowany.
+- **Zniknięcie procesu API:** workery same się kończą.
+- **Monitoring:** `/readyz` pokazuje `workers_ready`, a metryki `ocr_workers_ready` i `ocr_worker_restarts_total`.
+
+Modele ładują się raz na workera, równolegle i w tle po starcie, dlatego `/healthz` działa od razu, a `/readyz` czeka na załadowanie wszystkich workerów.
 
 **Nowy silnik** (np. Tesseract, Qwen-VL):
 
 1. Utwórz `engines/<nazwa>.py` z klasą dziedziczącą po `OcrEngine`. Zaimplementuj `supported_langs`, `load()` (raz, przy starcie) i `recognize(image_rgb, langs) -> list[TextBlock]`.
 2. Dopisz fabrykę do `ENGINES` w `engines/registry.py`.
 3. Ustaw `OCR_ENGINE=<nazwa>`.
+
+Silnik spoza repozytorium można wskazać ścieżką importu: `OCR_ENGINE=moj_pakiet.silnik:MojSilnik`. Klasa przyjmuje `Settings`. Ten sam mechanizm działa w procesach roboczych.
 
 API, preprocessing, limity i metryki pozostają bez zmian. Silnik VLM, który nie zwraca współrzędnych, może zwrócić jeden blok z `bbox` całego obrazu.
 
@@ -360,9 +390,9 @@ Test `test_service_is_reusable_without_http` pokazuje takie użycie.
 
 ```powershell
 uv run pytest                 # wszystko, w tym prawdziwy OCR (pierwsze uruchomienie pobiera modele)
-uv run pytest -m "not ocr"    # szybkie testy z fałszywym silnikiem (~2 s)
-uv run ruff check src tests examples
-uv run ruff format src tests examples
+uv run pytest -m "not ocr"    # szybkie testy z fałszywym silnikiem (~15 s, startują procesy)
+uv run ruff check src tests examples scripts
+uv run ruff format src tests examples scripts
 uv run mypy                   # tryb strict
 ```
 
@@ -373,16 +403,44 @@ Co sprawdzają testy:
 - **Klucz API:** brak, błędny i poprawny klucz.
 - **Stany serwisu:** `/readyz` w trakcie ładowania i po błędzie, metryki, format błędów 404/405.
 - **Współbieżność:** `busy`, `queue_timeout`, równoległość workerów.
+- **Procesy robocze:** równoległość w osobnych procesach, crash workera (500 i restart), zawieszony worker (504, kill i restart), błąd przechodzący między procesami, błąd ładowania modelu, automatyczny dobór liczby workerów (CPU i pamięć).
 - **Preprocessing:** RGBA, EXIF, upscaling, ciemny motyw.
 - **Tekst:** kolejność czytania, detekcja języka.
 - **OCR end-to-end** (`-m ocr`): PaddleOCR na wygenerowanym obrazie z „Zażółć gęślą jaźń” (jasny i ciemny motyw), tekst angielski, pusty obraz.
 
 ---
 
-## 9. Wydajność i ograniczenia
+## 9. Wydajność, skalowanie i ograniczenia
 
-- **Windows:** PaddlePaddle 3.x nie działa tam z oneDNN, więc działa wolniejsza ścieżka CPU. Zrzut 1920×1080 z ok. 10 liniami tekstu trwa ok. 6–9 s (8 wątków, zmierzone lokalnie). Na Linuksie (Docker, CI) oneDNN jest włączony, co zwykle znacząco przyspiesza inferencję. Tego wariantu nie mierzyłem; czasy z CI pokaże `duration_ms` i metryka `ocr_processing_duration_seconds`. Do szybszej pracy na Windows użyj WSL2 albo Dockera na serwerze.
+**Pomiar przepustowości** ([`scripts/loadtest.py`](scripts/loadtest.py)): zrzuty 1280×720 z ok. 8 liniami tekstu, 8 żądań równolegle, laptop z 8 wątkami CPU, Windows (bez oneDNN).
+
+| Konfiguracja | Przepustowość | Względem startu |
+|---|---|---|
+| wątki, 1 worker × 8 wątków (pierwsza wersja) | 0,14 obr./s | 1,0× |
+| wątki, 4 × 2 | 0,17 obr./s | 1,2× |
+| procesy, 2 × 4 | 0,26 obr./s | 1,9× |
+| procesy, 4 × 2 | 0,28 obr./s | 2,0× |
+| **procesy, 8 × 1 (domyślne: auto)** | **0,37 obr./s** | **2,6×** |
+
+Wątki w jednym procesie prawie się nie skalują, bo blokuje je GIL. Procesy skalują się z liczbą rdzeni. Na serwerze z Linuksem (oneDNN) i większą liczbą rdzeni przepustowość będzie wyższa; zmierz ją na docelowej maszynie:
+
+```bash
+uv run python scripts/loadtest.py zrzut1.png zrzut2.png -c 32 -n 500 --url http://serwer:8000
+```
+
+**Strojenie:**
+
+- **Duży ruch** (domyślne): `OCR_PADDLE_CPU_THREADS=1`, `OCR_WORKERS=0`. Daje maksymalną liczbę obrazów na sekundę; pojedyncze żądanie trwa dłużej.
+- **Mały ruch, ważne opóźnienie:** `OCR_PADDLE_CPU_THREADS=4`. Mniej workerów, ale każdy obraz przetwarzany jest szybciej.
+- **Kolejka:** `OCR_MAX_QUEUE` i `OCR_QUEUE_TIMEOUT_S` decydują, ile ruchu serwis buforuje, zanim zacznie odpowiadać `503` z `Retry-After`. Przykładowy klient sam ponawia takie żądania. Gdy `ocr_queue_wait_seconds` rośnie, dołóż CPU albo repliki.
+- **Skalowanie poziome:** serwis jest bezstanowy, więc można uruchomić wiele replik za load balancerem. `/readyz` nadaje się na readiness probe.
+- **GPU:** na GPU wąskim gardłem przestaje być CPU. Wtedy warto rozważyć batchowanie żądań; interfejs backendu na to pozwala.
+
+**Ograniczenia:**
+
+
+- **Windows:** PaddlePaddle 3.x nie działa tam z oneDNN, więc działa wolniejsza ścieżka CPU. Zrzut 1920×1080 z ok. 10 liniami tekstu trwa ok. 6–9 s przy 8 wątkach na jeden obraz (zmierzone lokalnie). Na Linuksie (Docker, CI) oneDNN jest włączony, co zwykle znacząco przyspiesza inferencję. Tego wariantu nie mierzyłem; czasy z CI pokaże `duration_ms` i metryka `ocr_processing_duration_seconds`. Do szybszej pracy na Windows użyj WSL2 albo Dockera na serwerze.
 - **Kolejność czytania:** opiera się na grupowaniu bloków w wiersze. Układy wielokolumnowe (pasek boczny obok treści) mogą się przeplatać w polu `text`. Do precyzyjnego układu użyj `blocks` i `bbox`.
 - **Typografia:** typograficzne znaki, np. półpauza „–”, bywają odczytywane jako ich proste odpowiedniki („-”).
-- **Pamięć:** jedna instancja PP-OCRv5 mobile zajmuje ok. 300 MB RAM po załadowaniu i ok. 500 MB w szczycie przy zrzucie 1080p (zmierzone na Windows). Limit `3g` w `docker-compose.yml` zostawia zapas na 2–3 workery.
+- **Pamięć:** jeden worker (PP-OCRv5 mobile) zajmuje ok. 300 MB RAM po załadowaniu i ok. 500 MB w szczycie przy zrzucie 1080p (zmierzone na Windows). Stąd domyślny budżet `OCR_WORKER_MEMORY_MB=700`. Na serwerze z 32 rdzeniami tryb auto uruchomi do 32 workerów (ok. 22 GB), chyba że limit pamięci kontenera jest mniejszy.
 - **Wyższa dokładność:** modele `PP-OCRv6_medium_det` + `PP-OCRv6_medium_rec` są dokładniejsze, ale ok. 2–3× wolniejsze na CPU.

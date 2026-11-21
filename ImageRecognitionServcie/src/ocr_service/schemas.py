@@ -61,5 +61,7 @@ class HealthResponse(BaseModel):
 class ReadyResponse(BaseModel):
     status: str = Field(examples=["ready"])
     engine: str
+    executor: str
     workers: int
+    workers_ready: int
     langs: list[str]

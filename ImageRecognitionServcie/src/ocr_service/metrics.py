@@ -29,3 +29,7 @@ OCR_QUEUE_WAIT = Histogram(
 ERRORS = Counter("ocr_errors_total", "Error responses by error code.", ["code"])
 INFLIGHT = Gauge("ocr_inflight_requests", "OCR requests admitted (running + waiting).")
 ENGINE_READY = Gauge("ocr_engine_ready", "1 when the OCR engine is loaded and serving.")
+WORKERS_READY = Gauge("ocr_workers_ready", "Engine workers loaded and accepting work.")
+WORKER_RESTARTS = Counter(
+    "ocr_worker_restarts_total", "Worker processes restarted after a crash or a hang."
+)
