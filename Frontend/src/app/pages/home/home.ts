@@ -14,7 +14,6 @@ import { ImageCropper } from '../../shared/image-cropper/image-cropper';
 import { ChatThread } from './chat-thread/chat-thread';
 import { RealtimeService } from '../../core/realtime/realtime.service';
 import {
-  SearchRequestPayload,
   SearchResult,
   SearchResultsPayload,
 } from '../../core/search.models';
@@ -135,9 +134,41 @@ export class Home {
   }
 
   private async sendSearch(query: string, img: AttachedImage | null): Promise<void> {
-    const payload: SearchRequestPayload = { query };
-    if (img) payload.image = await blobToDataUrl(img.blob);
-    this.realtime.send('search', payload);
+    try {
+      let response: Response;
+      if (img) {
+        const form = new FormData();
+        form.set('file', img.blob, 'image.png');
+        response = await fetch('/api/v1/verify/image', { method: 'POST', body: form });
+      } else {
+        response = await fetch('/api/v1/verify/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Channel': 'web' },
+          body: JSON.stringify({ text: query }),
+        });
+      }
+
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(body.detail ?? 'Nie udało się połączyć z API Gateway.');
+      }
+
+      const claims = Array.isArray(body.claims) ? body.claims : [];
+      const mapped: SearchResult[] = claims.map((claim: any, index: number) => ({
+        id: body.check_id ?? String(index),
+        title: claim.claim ?? body.summary ?? 'Wynik weryfikacji',
+        url: claim.sources?.[0]?.url ?? '#',
+        snippet: claim.explanation ?? claim.verdict,
+        source: claim.sources?.[0]?.title,
+      }));
+
+      this.results.set(mapped);
+    } catch (err) {
+      this.error.set(err instanceof Error ? err.message : 'Nie udało się połączyć z API Gateway.');
+      this.results.set([]);
+    } finally {
+      this.loading.set(false);
+    }
   }
 
   /**
@@ -267,13 +298,4 @@ function firstImage(data: DataTransfer | null): File | null {
     if (file.type.startsWith('image/')) return file;
   }
   return null;
-}
-
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
 }
