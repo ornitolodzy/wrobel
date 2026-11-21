@@ -32,7 +32,7 @@ jobs:
             scrapper: ["PageScrapper/**", ".github/workflows/services.yml"]
             pipeline: ["VerificationPipeline/**", ".github/workflows/services.yml"]
             frontend: ["Frontend/**", ".github/workflows/services.yml"]
-            infra: ["Infra/**", "docker-compose.yml", "*/Dockerfile", ".github/workflows/services.yml"]
+            infra: ["docker-compose.yml", "proxy/**", "start.sh", "*/Dockerfile", ".github/workflows/services.yml"]
 
   gateway:
     needs: changes
@@ -88,10 +88,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Walidacja docker compose (z katalogu głównego i z Infra/docker)
+      - name: Walidacja docker compose
         run: |
-          cp Infra/docker/.env.example Infra/docker/.env
+          cp .env.example .env
           docker compose config --quiet
-          docker compose -f Infra/docker/docker-compose.yml config --quiet
+          docker compose -f VerificationPipeline/docker-compose.yml config --quiet
       - name: Build obrazów
         run: docker compose build api-gateway page-scrapper verification-pipeline frontend

@@ -8,10 +8,10 @@
 #   5. sprawdza połączenia: gateway -> pipeline / scrapper / OCR
 #   6. przy pustej bazie wiedzy uruchamia pierwsze pobranie źródeł (scrapper -> pipeline)
 #
-# Użycie (Git Bash na Windows, Linux, macOS), z dowolnego katalogu (albo `make up` w katalogu głównym):
-#   ./Infra/docker/start.sh              pełny start
-#   ./Infra/docker/start.sh --no-build   start bez przebudowy obrazów
-#   ./Infra/docker/start.sh --no-scrape  bez pierwszego pobrania źródeł
+# Użycie (Git Bash na Windows, Linux, macOS), z dowolnego katalogu (albo `make start`):
+#   ./start.sh              pełny start
+#   ./start.sh --no-build   start bez przebudowy obrazów
+#   ./start.sh --no-scrape  bez pierwszego pobrania źródeł
 
 set -euo pipefail
 
@@ -47,9 +47,8 @@ warn() { printf '  %s!%s %s\n' "$C_WARN" "$C_END" "$*"; }
 die()  { printf '\n%s✘ %s%s\n' "$C_ERR" "$*" "$C_END" >&2; exit 1; }
 
 # ------------------------------------------------------------------ ścieżki
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    # .../Infra/docker
-ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"                        # katalog główny monorepo
-cd "$SCRIPT_DIR"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"          # katalog główny monorepo
+cd "$ROOT"
 
 # ------------------------------------------------------------------ 1. wymagania
 step "Sprawdzam wymagania"
@@ -85,7 +84,7 @@ else
 fi
 if ! grep -qE '^(ANTHROPIC|MISTRAL|OPENAI)_API_KEY=.+' .env; then
   warn "Brak klucza LLM w .env: werdykty będą 'brak dowodów' (pipeline bez modelu nie ocenia źródeł)."
-  warn "Ustaw PRAWDOWID_LLM_PROVIDER, PRAWDOWID_LLM_MODEL i klucz w $SCRIPT_DIR/.env"
+  warn "Ustaw PRAWDOWID_LLM_PROVIDER, PRAWDOWID_LLM_MODEL i klucz w $ROOT/.env"
 fi
 
 # ------------------------------------------------------------------ 4. build + start
@@ -154,7 +153,7 @@ cat <<EOF
   PageScrapper (docs)  http://127.0.0.1:8002/docs
   OCR (docs)           http://127.0.0.1:8001/docs
 
-  Logi:       make logs        (albo: ${COMPOSE[*]} -f "$SCRIPT_DIR/docker-compose.yml" logs -f)
-  Zatrzymaj:  make down        (albo: ${COMPOSE[*]} -f "$SCRIPT_DIR/docker-compose.yml" down)
-  Więcej:     $SCRIPT_DIR/README.md
+  Logi:       make logs        (albo: ${COMPOSE[*]} logs -f, w $ROOT)
+  Zatrzymaj:  make down        (albo: ${COMPOSE[*]} down, w $ROOT)
+  Więcej:     $ROOT/README.md
 EOF

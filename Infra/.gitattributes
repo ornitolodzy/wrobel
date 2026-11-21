@@ -1,2 +1,0 @@
-# Skrypty powłoki zawsze z LF (CRLF psuje bash na Linux/macOS i w kontenerach)
-*.sh text eol=lf

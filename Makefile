@@ -1,7 +1,7 @@
 # PRAWDOWID monorepo. `make help` pokazuje cele.
 # Działa z `docker compose` (plugin) i z samodzielnym `docker-compose` v2.
 COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
-DC      := $(COMPOSE) -f Infra/docker/docker-compose.yml
+DC      := $(COMPOSE)
 S       ?=
 
 .PHONY: help up start down clean ps logs build config dev-backend dev-frontend \
@@ -11,7 +11,7 @@ help: ## lista celów
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
 start: ## pełny start ze sprawdzeniem połączeń i pierwszym pobraniem źródeł
-	./Infra/docker/start.sh
+	./start.sh
 
 up: ## build + start całego stacku
 	$(DC) up -d --build
