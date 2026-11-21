@@ -19,7 +19,7 @@ cp conf/local/parameters.yml.example conf/local/parameters.yml
 .venv/bin/kedro run --pipeline eval             # metrics -> data/eval/report.json
 .venv/bin/kedro run --pipeline ingestion        # corpus ingestion (skeleton)
 .venv/bin/kedro viz                             # DAG view of every step
-docker compose up db                            # Postgres 16 + pgvector + schema
+docker compose -f infra/docker/docker-compose.yml up db   # Postgres 16 + pgvector + schema
 ```
 
 ## Layout
@@ -37,6 +37,10 @@ docker compose up db                            # Postgres 16 + pgvector + schem
 | `conf/base/parameters.yml` | models, thresholds, source weights (swap without code changes) |
 | `conf/base/sources.yml` | audited source catalog |
 | `db/schema.sql` | source · document · chunk · check · case |
+| `src/prawdowid/api/gateway.py` | service contracts of the stack: `/verify` (API Gateway), `/ingest` (PageScrapper) |
+| `src/prawdowid/corpus.py` | corpus store fed by PageScrapper: chunk + embed into `document` / `chunk` |
+| `conf/docker/` | parameters for the docker stack (`PRAWDOWID_ENV=docker`: Postgres retrieval) |
+| `infra/docker/` | Dockerfile (context = repo root), its `.dockerignore`, standalone compose |
 
 ## Models
 Each LLM role (`claims`, `stance`, `compose`) is configured separately in `conf/*/parameters.yml`.
@@ -51,7 +55,7 @@ Our own Postgres corpus (`ingestion` pipeline) remains as an alternative backend
 
 ## Corpus (RAG)
 ```bash
-docker-compose up -d db                                  # Postgres 16 + pgvector, schema from db/schema.sql
+docker compose -f infra/docker/docker-compose.yml up -d db   # Postgres 16 + pgvector, schema from db/schema.sql
 .venv/bin/kedro run --pipeline ingestion                 # crawl Linki.md sources (+1 level), embed, store
 cat data/ingestion/report.json                           # docs per domain, failures, >=100 docs / >=10 domains
 ```
