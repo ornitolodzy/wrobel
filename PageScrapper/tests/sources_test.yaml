@@ -1,0 +1,86 @@
+sources:
+  - id: rcb-komunikaty
+    name: RCB
+    publisher: Rządowe Centrum Bezpieczeństwa
+    source_type: official
+    adapter: govpl_list
+    url: https://www.gov.pl/web/rcb/komunikaty
+    max_items: 30
+
+  - id: odyseusz-msz
+    name: Odyseusz
+    publisher: Ministerstwo Spraw Zagranicznych
+    source_type: official
+    adapter: odyseusz
+    url: https://odyseusz.gov.pl/
+    max_items: 3
+    refresh_known: true
+    options:
+      countries: [UA, IT]
+
+  - id: policja-aktualnosci
+    name: Policja
+    publisher: Komenda Główna Policji
+    source_type: official
+    adapter: html_list
+    url: https://policja.pl/pol/aktualnosci
+    max_items: 10
+    options:
+      link_pattern: '/pol/aktualnosci/\d+,'
+      date_selector: span.data
+
+  - id: isap-dziennik-ustaw
+    name: ISAP
+    publisher: Sejm RP - Internetowy System Aktów Prawnych
+    source_type: official
+    adapter: sejm_eli
+    url: https://api.sejm.gov.pl/eli/acts
+    max_items: 2
+    options:
+      publisher: DU
+      year: 2026
+
+  - id: demagog-fake-news
+    name: Demagog
+    publisher: Stowarzyszenie Demagog
+    source_type: fact_check
+    adapter: rss
+    url: https://demagog.org.pl/fake_news/feed/
+    max_items: 30
+    options:
+      drop_lines_starting_with:
+        - Obalamy fałszywe informacje pojawiające się w mediach społecznościowych
+      exclude_categories: [Szkolenie]
+
+  - id: google-factcheck
+    name: Google Fact Check
+    publisher: Weryfikatorzy faktów
+    source_type: fact_check
+    adapter: google_factcheck
+    url: https://factchecktools.googleapis.com/v1alpha1/claims:search
+    max_items: 50
+    options:
+      queries: [Ukraina, NATO]
+
+  - id: euvsdisinfo-baza
+    name: EUvsDisinfo baza
+    publisher: EUvsDisinfo
+    source_type: disinfo_db
+    adapter: euvsdisinfo_mcp
+    url: https://euvsdisinfo-mcp-server.vercel.app/mcp
+    max_items: 10
+
+  - id: baza-incydentow
+    name: Baza incydentów
+    publisher: Organizator
+    source_type: disinfo_db
+    adapter: file_import
+    url: urn:prawdowid:baza-incydentow
+    max_items: 100
+    options:
+      file: incidents.json
+      records_path: data.items
+      fields:
+        text: [claim, verdict_note]
+        published_at: date
+        publisher: source

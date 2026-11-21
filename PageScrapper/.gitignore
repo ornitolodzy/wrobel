@@ -221,3 +221,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# incident files from the organizer - license decided by them, not committed
+imports/*
+!imports/.gitkeep
