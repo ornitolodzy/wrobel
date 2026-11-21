@@ -1,0 +1,10 @@
+# Online verification runs fully in memory: runtime.verify() builds its own
+# DataCatalog per request. Entries below only feed `kedro run` (demo input).
+
+raw_input:
+  type: kedro.io.MemoryDataset
+  data: "MSZ wysłało pismo z żądaniami terytorialnymi wobec Czech."
+
+channel:
+  type: kedro.io.MemoryDataset
+  data: cli

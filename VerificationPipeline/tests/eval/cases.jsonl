@@ -1,0 +1,3 @@
+{"id": "e01", "scenario": "D", "input": "MSZ wysłało pismo z żądaniami terytorialnymi wobec Czech.", "expected_label": "brak_dowodow"}
+{"id": "e02", "scenario": "opinion", "input": "Moim zdaniem polityka zagraniczna jest najgorsza od lat.", "expected_label": "nie_podlega_weryfikacji"}
+{"id": "e03", "scenario": "clarify", "input": " ", "expected_status": "needs_clarification"}

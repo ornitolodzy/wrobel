@@ -1,0 +1,147 @@
+# Source catalog: the audited list of sources the system trusts (task requires >= 100 docs,
+# >= 10 domains, >= 2 source types).
+#
+# type:   primary (official / state body) | factcheck | secondary (media, analyses)
+# domain: matches the domain and its subdomains (gov.pl also matches www.gov.pl)
+# path:   optional URL path prefix; the most specific entry wins (gov.pl/web/rcb -> RCB, not gov.pl)
+# seeds:  start pages for the ingestion pipeline (basic links: Linki.md)
+#
+# Pages from domains NOT listed here can still be found by web search, but get type "web"
+# (unvetted) and can never decide a verdict alone.
+
+sources:
+  # --- gov.pl portal: one entry per institution ---
+  - domain: gov.pl
+    publisher: "gov.pl (portal administracji)"
+    type: primary
+    license: informacja publiczna
+    update: daily
+  - domain: gov.pl
+    path: /web/gov/ostrzezenia
+    publisher: "Ostrzeżenia gov.pl"
+    type: primary
+    update: hourly
+    seeds:
+      - https://www.gov.pl/web/gov/ostrzezenia
+      - https://www.gov.pl/web/gov/ostrzezenia#/_/mazowieckie/wszystkie
+  - domain: gov.pl
+    path: /web/rcb
+    publisher: "Rządowe Centrum Bezpieczeństwa"
+    type: primary
+    update: daily
+    seeds:
+      - https://www.gov.pl/web/rcb/raport-dobowy3
+      - https://www.gov.pl/web/rcb/strona-glowna-rzadowego-centrum-bezpieczenstwa
+  - domain: gov.pl
+    path: /web/mswia
+    publisher: "MSWiA"
+    type: primary
+    update: daily
+    seeds:
+      - https://www.gov.pl/web/mswia/regionalny-system-ostrzegania
+      - https://www.gov.pl/web/mswia
+  - domain: gov.pl
+    path: /web/kgpsp
+    publisher: "Państwowa Straż Pożarna (KG PSP)"
+    type: primary
+    update: daily
+    seeds: [https://www.gov.pl/web/kgpsp/aktualnosci]
+  - domain: gov.pl
+    path: /web/obrona-narodowa
+    publisher: "Ministerstwo Obrony Narodowej"
+    type: primary
+    update: daily
+    seeds: [https://www.gov.pl/web/obrona-narodowa/aktualnosci5]
+  - domain: gov.pl
+    path: /web/gis
+    publisher: "Główny Inspektorat Sanitarny"
+    type: primary
+    update: daily
+    seeds: [https://www.gov.pl/web/gis/ostrzezenia]
+  - domain: gov.pl
+    path: /web/paa
+    publisher: "Państwowa Agencja Atomistyki"
+    type: primary
+    update: daily
+    seeds: [https://www.gov.pl/web/paa/panstwowa-agencja-atomistyki]
+  - domain: gov.pl
+    path: /web/infrastruktura
+    publisher: "Ministerstwo Infrastruktury"
+    type: primary
+    update: daily
+    seeds:
+      - https://www.gov.pl/web/infrastruktura
+      - https://www.gov.pl/web/infrastruktura/aktualnosci
+      - https://www.gov.pl/web/infrastruktura/prawa-pasazerow
+      - https://www.gov.pl/web/infrastruktura/infolinia-dla-obywatela
+      - https://www.gov.pl/web/infrastruktura/dane-kontaktowe
+  - domain: gov.pl
+    path: /web/gddkia
+    publisher: "GDDKiA"
+    type: primary
+    update: hourly
+    seeds: [https://www.gov.pl/web/gddkia/informacja-drogowa---19-111]
+  - domain: gov.pl
+    path: /web/wody-polskie
+    publisher: "Wody Polskie"
+    type: primary
+    update: daily
+    seeds: [https://www.gov.pl/web/wody-polskie/komunikaty-nawigacyjne]
+  - domain: gov.pl
+    path: /web/dyplomacja
+    publisher: "Ministerstwo Spraw Zagranicznych"
+    type: primary
+    update: daily
+    seeds: [https://www.gov.pl/web/dyplomacja/informacje-dla-podrozujacych]
+  - domain: gov.pl
+    path: /web/premier
+    publisher: "Kancelaria Prezesa Rady Ministrów"
+    type: primary
+    update: daily
+    seeds: [https://www.gov.pl/web/premier]
+
+  # --- other state bodies ---
+  - {domain: odyseusz.gov.pl, publisher: "MSZ – Odyseusz", type: primary, update: daily, seeds: [https://odyseusz.gov.pl/]}
+  - {domain: policja.pl, publisher: "Policja (KGP)", type: primary, update: daily, seeds: [https://policja.pl/pol/aktualnosci]}
+  - {domain: policja.gov.pl, publisher: "Policja (komendy wojewódzkie)", type: primary, update: daily,
+     seeds: [https://mazowiecka.policja.gov.pl/ra/aktualnosci/aktualnosci]}
+  - {domain: paa.gov.pl, publisher: "Państwowa Agencja Atomistyki", type: primary, update: hourly, seeds: [https://monitoring.paa.gov.pl/]}
+  - {domain: gios.gov.pl, publisher: "GIOŚ", type: primary, update: hourly, seeds: [https://powietrze.gios.gov.pl/pjp/]}
+  - {domain: cert.pl, publisher: "CERT Polska (NASK)", type: primary, update: daily, seeds: [https://moje.cert.pl/komunikaty/]}
+  - domain: gddkia.gov.pl
+    publisher: "GDDKiA"
+    type: primary
+    update: hourly
+    seeds:
+      - https://drogi.gddkia.gov.pl/informacje-drogowe
+      - https://drogi.gddkia.gov.pl/mapy/mapa-informacji-drogowej
+      - https://drogi.gddkia.gov.pl/informacje-drogowe/lista-utrudnien
+  - domain: ulc.gov.pl
+    publisher: "Urząd Lotnictwa Cywilnego"
+    type: primary
+    update: weekly
+    seeds:
+      - https://ulc.gov.pl/
+      - https://ulc.gov.pl/prawa-pasazera
+      - https://ulc.gov.pl/prawa-pasazera/poradnik-dla-pasazerow
+  - {domain: portalpasazera.pl, publisher: "Portal Pasażera (PKP PLK)", type: primary, update: hourly, seeds: [https://portalpasazera.pl/]}
+  - {domain: utk.gov.pl, publisher: "Urząd Transportu Kolejowego", type: primary, update: weekly, seeds: [https://utk.gov.pl/pl/pasazerowie]}
+  - {domain: kgsok.pl, publisher: "Straż Ochrony Kolei (KG SOK)", type: primary, update: weekly, seeds: [https://kgsok.pl/]}
+  - {domain: sar.gov.pl, publisher: "Morska Służba Poszukiwania i Ratownictwa", type: primary, update: weekly, seeds: [https://www.sar.gov.pl/]}
+  - {domain: umgdy.gov.pl, publisher: "Urząd Morski w Gdyni", type: primary, update: daily, seeds: [https://www.umgdy.gov.pl/]}
+  - {domain: ums.gov.pl, publisher: "Urząd Morski w Szczecinie", type: primary, update: daily,
+     seeds: [https://www.ums.gov.pl/bezpieczenstwo-morskie/warunki-zeglugi]}
+  - domain: imgw.pl
+    publisher: "IMGW-PIB"
+    type: primary
+    update: hourly
+    seeds:
+      - https://meteo.imgw.pl/
+      - https://hydro.imgw.pl/
+      - https://baltyk.imgw.pl/
+
+  # --- law, analyses, fact-checking ---
+  - {domain: isap.sejm.gov.pl, publisher: "ISAP (Sejm RP)", type: primary, license: "informacja publiczna", update: weekly}
+  - {domain: pism.pl, publisher: "PISM", type: secondary, license: "do sprawdzenia", update: weekly}
+  - {domain: demagog.org.pl, publisher: "Demagog", type: factcheck, license: "do sprawdzenia", update: daily}
+  - {domain: euvsdisinfo.eu, publisher: "EUvsDisinfo (ESDZ)", type: factcheck, license: "do sprawdzenia", update: weekly}

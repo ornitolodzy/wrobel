@@ -1,0 +1,27 @@
+# Copy to conf/local/parameters.yml (gitignored) to use real models. Keys go in .env.
+# Only the roles you list are overridden.
+llm:
+  roles:
+    claims:  {provider: litellm, model: anthropic/claude-opus-5-5, max_tokens: 2000, timeout_s: 20}
+    stance:  {provider: litellm, model: anthropic/claude-opus-5-5, max_tokens: 4000, timeout_s: 25}
+    compose: {provider: litellm, model: anthropic/claude-opus-5-5, max_tokens: 800, timeout_s: 15}
+
+    # Alternatives (swap the line for a role):
+    # EEA provider:  {provider: litellm, model: mistral/mistral-large-latest, temperature: 0}
+    # Self-hosted:   {provider: litellm, model: openai/speakleash/Bielik-11B-v2.3-Instruct, api_base: http://localhost:8001/v1, api_key: none, temperature: 0}
+    # Ollama:        {provider: litellm, model: ollama/bielik, api_base: http://localhost:11434, temperature: 0}
+    # NLI (stance):  {provider: nli, nli_model: MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7, min_score: 0.7}
+    #
+    # Note: role overrides are merged key by key with conf/base, so always set `model` explicitly.
+
+retrieval:
+  backend: neo4j            # knowledge graph of the other team; export NEO4J_PASSWORD=...
+  neo4j:
+    uri: bolt://localhost:7687
+  # backend: postgres       # own corpus: docker-compose up -d db, kedro run --pipeline ingestion
+embeddings:
+  provider: ollama          # on the server: ollama pull bge-m3
+  model: bge-m3
+  api_base: http://127.0.0.1:11435
+reranker:
+  enabled: true             # BAAI/bge-reranker-v2-m3 on CPU, ~2.2 GB; pip install -e ".[rerank]"

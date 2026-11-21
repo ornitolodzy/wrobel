@@ -1,0 +1,13 @@
+hacknation-llm-wiki
+.venv/
+__pycache__/
+*.egg-info/
+.env
+conf/local/*
+!conf/local/.gitkeep
+!conf/local/parameters.yml.example
+data/
+.pytest_cache/
+.ruff_cache/
+.viz/
+.telemetry
