@@ -34,12 +34,16 @@ zebrał wcześniej (tabela `documents`).
 
 ## Układ katalogów
 
-Pliki stacku są w repo **Infra** (`Infra/docker/`), a kod serwisów w ich własnych repo obok:
+Wszystkie serwisy są w jednym monorepo; pliki stacku są w `Infra/docker/`:
 
 ```
-hacknation/
-├── Infra/docker/                    <- tu uruchamiasz docker compose
+wrobel/                              <- katalog główny monorepo
+├── docker-compose.yml               include: Infra/docker/docker-compose.yml (start z katalogu głównego)
+├── Makefile                         make up / down / logs / test / dev-frontend
+├── .github/workflows/               CI wszystkich serwisów (filtrowane po ścieżkach)
+├── Infra/docker/
 │   ├── docker-compose.yml           cały stack (projekt "wrobel")
+│   ├── start.sh                     pełny start ze sprawdzeniem połączeń
 │   ├── .env.example                 klucze LLM i źródeł (kopiuj do .env w tym katalogu)
 │   ├── proxy/nginx.conf             reverse proxy :4200
 │   └── verification-pipeline/       Dockerfile (+ .dockerignore) obrazu pipeline'u
@@ -66,20 +70,17 @@ Z zewnątrz wszystko powinno iść przez gateway.
 
 ## Szybki start: jeden skrypt
 
-Na czystym komputerze wystarczy sklonować samo repo Infra i uruchomić [start.sh](start.sh)
-(Git Bash na Windows, Linux albo macOS):
+Sklonuj monorepo i uruchom [start.sh](start.sh) (Git Bash na Windows, Linux albo macOS):
 
 ```bash
-mkdir hacknation && cd hacknation
-git clone https://github.com/ornitolodzy/Infra.git
-./Infra/docker/start.sh
+git clone <adres-monorepo> wrobel && cd wrobel
+make start            # to samo co ./Infra/docker/start.sh
 ```
 
 Skrypt:
 
-1. sprawdza wymagania: git, Docker, `docker compose`, działający silnik Dockera;
-2. klonuje brakujące repo obok `Infra` (`APIGateway`, `Frontend`, `ImageRecognitionServcie` z gałęzi `develop`,
-   `PageScrapper`, `VerificationPipeline`); repo, które już są, zostawia bez zmian;
+1. sprawdza wymagania: Docker, Compose v2 (`docker compose` albo samodzielne `docker-compose`), działający silnik;
+2. sprawdza, czy w monorepo są katalogi wszystkich serwisów i integracja pipeline'u z gatewayem;
 3. tworzy `.env` z `.env.example` i ostrzega, jeśli nie ma klucza LLM;
 4. buduje obrazy i uruchamia stack, czekając, aż wszystkie healthchecki będą zielone (przy błędzie wypisuje logi);
 5. sprawdza połączenia gateway → pipeline / scrapper / OCR oraz proxy :4200;
@@ -87,14 +88,12 @@ Skrypt:
 
 | Opcja | Działanie |
 |---|---|
-| `--pull` | dodatkowo aktualizuje istniejące repo (`git pull --ff-only`, pomija repo z niezacommitowanymi zmianami) |
-| `--clone-only` | tylko pobiera repo, bez Dockera |
 | `--no-build` | start bez przebudowy obrazów |
 | `--no-scrape` | bez pierwszego pobrania źródeł |
 
-Gałęzie repo można nadpisać zmiennymi, np. `VERIFICATIONPIPELINE_BRANCH=feat/docker-stack-integration ./Infra/docker/start.sh`.
-Pozostałe: `APIGATEWAY_BRANCH`, `FRONTEND_BRANCH`, `IMAGERECOGNITIONSERVCIE_BRANCH`, `PAGESCRAPPER_BRANCH`,
-oraz `ADMIN_API_KEY`, `WAIT_TIMEOUT` (sekundy, domyślnie 900).
+Zmienne: `ADMIN_API_KEY`, `WAIT_TIMEOUT` (sekundy, domyślnie 900).
+
+Bez skryptu: `docker compose up -d --build` działa zarówno z katalogu głównego monorepo, jak i z `Infra/docker`.
 
 Poniżej to samo krok po kroku.
 
@@ -133,7 +132,7 @@ Wszystkie wpisy w [.env.example](.env.example) są opcjonalne:
 ### 3. Zbuduj i uruchom
 
 ```powershell
-cd C:\Users\kubsi\Documents\hacknation\Infra\docker
+cd wrobel\Infra\docker
 docker compose up -d --build
 ```
 

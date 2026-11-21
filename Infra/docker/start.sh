@@ -1,52 +1,36 @@
 #!/usr/bin/env bash
-# PRAWDOWID: pełne uruchomienie stacku od zera.
+# PRAWDOWID: pełne uruchomienie stacku z monorepo.
 #
-#   1. sprawdza wymagania (git, docker, docker compose, działający silnik Dockera)
-#   2. klonuje brakujące repozytoria obok repo Infra (istniejące zostawia bez zmian)
+#   1. sprawdza wymagania (docker + compose v2 jako `docker compose` lub `docker-compose`, działający silnik)
+#   2. sprawdza, czy w monorepo są katalogi wszystkich serwisów
 #   3. tworzy .env z .env.example, jeśli go nie ma
 #   4. buduje obrazy i uruchamia stack, czekając aż serwisy będą zdrowe
 #   5. sprawdza połączenia: gateway -> pipeline / scrapper / OCR
 #   6. przy pustej bazie wiedzy uruchamia pierwsze pobranie źródeł (scrapper -> pipeline)
 #
-# Użycie (Git Bash na Windows, Linux, macOS), z dowolnego katalogu:
+# Użycie (Git Bash na Windows, Linux, macOS), z dowolnego katalogu (albo `make up` w katalogu głównym):
 #   ./Infra/docker/start.sh              pełny start
-#   ./Infra/docker/start.sh --pull       dodatkowo aktualizuje istniejące repo (git pull --ff-only)
-#   ./Infra/docker/start.sh --clone-only tylko pobiera repozytoria
 #   ./Infra/docker/start.sh --no-build   start bez przebudowy obrazów
 #   ./Infra/docker/start.sh --no-scrape  bez pierwszego pobrania źródeł
-#
-# Gałęzie można nadpisać zmiennymi, np.:
-#   VERIFICATIONPIPELINE_BRANCH=feat/docker-stack-integration ./Infra/docker/start.sh
 
 set -euo pipefail
 
 # ------------------------------------------------------------------ konfiguracja
-GITHUB_ORG_URL="${GITHUB_ORG_URL:-https://github.com/ornitolodzy}"
 ADMIN_API_KEY="${ADMIN_API_KEY:-change-me-admin}"   # musi być zgodny z docker-compose.yml
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
 APP_URL="${APP_URL:-http://localhost:4200}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-900}"                 # sekundy na healthchecki (pierwszy build OCR jest długi)
 
-# katalog repo -> gałąź (pusta = domyślna gałąź repo)
-REPOS=(
-  "APIGateway|${APIGATEWAY_BRANCH:-}"
-  "Frontend|${FRONTEND_BRANCH:-}"
-  "ImageRecognitionServcie|${IMAGERECOGNITIONSERVCIE_BRANCH:-develop}"
-  "PageScrapper|${PAGESCRAPPER_BRANCH:-}"
-  "VerificationPipeline|${VERIFICATIONPIPELINE_BRANCH:-}"
-)
+# serwisy (katalogi w monorepo) budowane przez docker-compose.yml
+SERVICES=(APIGateway Frontend ImageRecognitionServcie PageScrapper VerificationPipeline)
 
-DO_PULL=false
-CLONE_ONLY=false
 BUILD=true
 SCRAPE=true
 for arg in "$@"; do
   case "$arg" in
-    --pull) DO_PULL=true ;;
-    --clone-only) CLONE_ONLY=true ;;
     --no-build) BUILD=false ;;
     --no-scrape) SCRAPE=false ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Nieznana opcja: $arg (zobacz --help)" >&2; exit 2 ;;
   esac
 done
@@ -64,66 +48,32 @@ die()  { printf '\n%s✘ %s%s\n' "$C_ERR" "$*" "$C_END" >&2; exit 1; }
 
 # ------------------------------------------------------------------ ścieżki
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"    # .../Infra/docker
-WORKSPACE="$(cd "$SCRIPT_DIR/../.." && pwd)"                   # katalog z wszystkimi repo
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"                        # katalog główny monorepo
 cd "$SCRIPT_DIR"
 
 # ------------------------------------------------------------------ 1. wymagania
 step "Sprawdzam wymagania"
-command -v git >/dev/null 2>&1 || die "Brak git. Zainstaluj: https://git-scm.com/downloads"
-ok "git $(git --version | awk '{print $3}')"
-if ! $CLONE_ONLY; then
-  command -v docker >/dev/null 2>&1 || die "Brak Dockera. Zainstaluj Docker Desktop: https://docs.docker.com/get-docker/"
-  docker compose version >/dev/null 2>&1 || die "Brak 'docker compose' (v2). Zaktualizuj Docker Desktop."
-  docker info >/dev/null 2>&1 || die "Silnik Dockera nie działa. Uruchom Docker Desktop i spróbuj ponownie."
-  ok "docker $(docker version --format '{{.Server.Version}}'), compose $(docker compose version --short)"
-  command -v curl >/dev/null 2>&1 || die "Brak curl (potrzebny do sprawdzenia serwisów)."
+command -v docker >/dev/null 2>&1 || die "Brak Dockera. Zainstaluj Docker Desktop: https://docs.docker.com/get-docker/"
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
+  COMPOSE=(docker-compose)
+else
+  die "Brak Docker Compose v2 ('docker compose' ani 'docker-compose'). Zaktualizuj Dockera."
 fi
+docker info >/dev/null 2>&1 || die "Silnik Dockera nie działa. Uruchom Dockera i spróbuj ponownie."
+ok "docker $(docker version --format '{{.Server.Version}}'), compose $("${COMPOSE[@]}" version --short) (${COMPOSE[*]})"
+command -v curl >/dev/null 2>&1 || die "Brak curl (potrzebny do sprawdzenia serwisów)."
 
-# ------------------------------------------------------------------ 2. repozytoria
-step "Repozytoria w $WORKSPACE"
-for entry in "${REPOS[@]}"; do
-  name="${entry%%|*}"
-  branch="${entry#*|}"
-  dir="$WORKSPACE/$name"
-  url="$GITHUB_ORG_URL/$name.git"
-
-  if [ -d "$dir/.git" ]; then
-    current="$(git -C "$dir" branch --show-current 2>/dev/null || echo '?')"
-    if $DO_PULL; then
-      if [ -n "$(git -C "$dir" status --porcelain)" ]; then
-        warn "$name: są niezacommitowane zmiany, pomijam pull"
-      elif git -C "$dir" pull --ff-only --quiet 2>/dev/null; then
-        ok "$name: zaktualizowane ($current)"
-      else
-        warn "$name: pull się nie udał (brak upstreamu albo rozjazd historii), zostawiam jak jest"
-      fi
-    else
-      ok "$name: już jest ($current), pomijam"
-    fi
-  elif [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
-    die "$name: katalog $dir istnieje, ale nie jest repozytorium git. Usuń go lub przenieś i uruchom ponownie."
-  else
-    printf '  … %s: klonuję %s%s\n' "$name" "$url" "${branch:+ (gałąź $branch)}"
-    if [ -n "$branch" ]; then
-      git clone --quiet --branch "$branch" "$url" "$dir" || die "Nie udało się sklonować $url (gałąź $branch). Sprawdź dostęp do repo."
-    else
-      git clone --quiet "$url" "$dir" || die "Nie udało się sklonować $url. Sprawdź dostęp do repo (prywatne repo wymaga zalogowania w git)."
-    fi
-    ok "$name: sklonowane ($(git -C "$dir" branch --show-current))"
-  fi
+# ------------------------------------------------------------------ 2. serwisy w monorepo
+step "Serwisy w $ROOT"
+for name in "${SERVICES[@]}"; do
+  [ -d "$ROOT/$name" ] || die "Brak katalogu $ROOT/$name. Uruchom skrypt z pełnego checkoutu monorepo."
+  ok "$name"
 done
-
 # Integracja pipeline'u z gatewayem (/verify, /ingest) musi być w kodzie, inaczej stack nie połączy się.
-if ! grep -q '"/verify"' "$WORKSPACE/VerificationPipeline/src/prawdowid/api/gateway.py" 2>/dev/null; then
-  warn "VerificationPipeline nie ma integracji ze stackiem (brak src/prawdowid/api/gateway.py)."
-  warn "Przełącz gałąź, np.: git -C \"$WORKSPACE/VerificationPipeline\" switch feat/docker-stack-integration"
-  $CLONE_ONLY || die "Przerwano: bez tej integracji gateway nie połączy się z pipeline'em."
-fi
-
-if $CLONE_ONLY; then
-  step "Gotowe (--clone-only). Pełny start: $0"
-  exit 0
-fi
+grep -q '"/verify"' "$ROOT/VerificationPipeline/src/prawdowid/api/gateway.py" 2>/dev/null \
+  || die "VerificationPipeline nie ma integracji ze stackiem (brak /verify w src/prawdowid/api/gateway.py)."
 
 # ------------------------------------------------------------------ 3. .env
 step "Konfiguracja (.env)"
@@ -143,14 +93,14 @@ step "Uruchamiam stack (docker compose, projekt 'wrobel')"
 $BUILD && echo "  Pierwszy build trwa kilkanaście minut (modele OCR, Chromium, zależności Pythona)."
 up_args=(up -d --wait --wait-timeout "$WAIT_TIMEOUT")
 $BUILD && up_args+=(--build)
-if ! docker compose "${up_args[@]}"; then
+if ! "${COMPOSE[@]}" "${up_args[@]}"; then
   echo
-  docker compose ps
-  for svc in $(docker compose ps --format '{{.Service}} {{.Status}}' | awk '/unhealthy|Exited|Restarting/ {print $1}'); do
+  "${COMPOSE[@]}" ps
+  for svc in $("${COMPOSE[@]}" ps --format '{{.Service}} {{.Status}}' | awk '/unhealthy|Exited|Restarting/ {print $1}'); do
     printf '\n%s--- ostatnie logi: %s ---%s\n' "$C_ERR" "$svc" "$C_END"
-    docker compose logs --tail 40 "$svc"
+    "${COMPOSE[@]}" logs --tail 40 "$svc"
   done
-  die "Nie wszystkie serwisy wystartowały. Szczegóły: docker compose logs <serwis>"
+  die "Nie wszystkie serwisy wystartowały. Szczegóły: ${COMPOSE[*]} logs <serwis>"
 fi
 ok "wszystkie kontenery działają"
 
@@ -167,7 +117,8 @@ for svc in llm page_scrapper image_recognition; do
   status="$(grep -oE "\"name\":\"$svc\",\"configured\":[a-z]+,\"status\":\"[a-z]+\"" <<<"$services_json" | grep -oE '[a-z]+"$' | tr -d '"' || true)"
   case "$status" in
     ok) ok "gateway -> $svc: ok" ;;
-    *) warn "gateway -> $svc: ${status:-brak} (docker compose logs)" ;;
+    *) case "$svc" in llm) cs=verification-pipeline ;; page_scrapper) cs=page-scrapper ;; *) cs=ocr ;; esac
+       warn "gateway -> $svc: ${status:-brak} (${COMPOSE[*]} logs $cs)" ;;
   esac
 done
 curl -fsS -o /dev/null "$APP_URL/" && ok "aplikacja przez proxy: $APP_URL" || warn "proxy $APP_URL nie odpowiada"
@@ -203,7 +154,7 @@ cat <<EOF
   PageScrapper (docs)  http://127.0.0.1:8002/docs
   OCR (docs)           http://127.0.0.1:8001/docs
 
-  Logi:       docker compose -f "$SCRIPT_DIR/docker-compose.yml" logs -f
-  Zatrzymaj:  docker compose -f "$SCRIPT_DIR/docker-compose.yml" down
+  Logi:       make logs        (albo: ${COMPOSE[*]} -f "$SCRIPT_DIR/docker-compose.yml" logs -f)
+  Zatrzymaj:  make down        (albo: ${COMPOSE[*]} -f "$SCRIPT_DIR/docker-compose.yml" down)
   Więcej:     $SCRIPT_DIR/README.md
 EOF

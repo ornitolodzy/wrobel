@@ -1,0 +1,97 @@
+name: Serwisy (gateway, scrapper, pipeline, frontend, stack)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: services-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      gateway: ${{ steps.f.outputs.gateway }}
+      scrapper: ${{ steps.f.outputs.scrapper }}
+      pipeline: ${{ steps.f.outputs.pipeline }}
+      frontend: ${{ steps.f.outputs.frontend }}
+      infra: ${{ steps.f.outputs.infra }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: f
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            gateway: ["APIGateway/**", ".github/workflows/services.yml"]
+            scrapper: ["PageScrapper/**", ".github/workflows/services.yml"]
+            pipeline: ["VerificationPipeline/**", ".github/workflows/services.yml"]
+            frontend: ["Frontend/**", ".github/workflows/services.yml"]
+            infra: ["Infra/**", "docker-compose.yml", "*/Dockerfile", ".github/workflows/services.yml"]
+
+  gateway:
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: APIGateway } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: APIGateway/requirements*.txt }
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest
+
+  scrapper:
+    needs: changes
+    if: needs.changes.outputs.scrapper == 'true'
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: PageScrapper } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: PageScrapper/requirements*.txt }
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest
+
+  pipeline:
+    needs: changes
+    if: needs.changes.outputs.pipeline == 'true'
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: VerificationPipeline } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: VerificationPipeline/pyproject.toml }
+      - run: pip install -e ".[llm,retrieval,dev]"
+      - run: python -m pytest -m "not live and not db"
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: Frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: Frontend/package-lock.json }
+      - run: npm ci
+      - run: npm run build
+
+  stack:
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Walidacja docker compose (z katalogu głównego i z Infra/docker)
+        run: |
+          cp Infra/docker/.env.example Infra/docker/.env
+          docker compose config --quiet
+          docker compose -f Infra/docker/docker-compose.yml config --quiet
+      - name: Build obrazów
+        run: docker compose build api-gateway page-scrapper verification-pipeline frontend

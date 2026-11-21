@@ -1,22 +1,27 @@
-name: CI
+name: OCR (ImageRecognitionServcie)
 
 on:
   push:
     branches: [main, develop]
+    paths: ["ImageRecognitionServcie/**", ".github/workflows/ocr.yml"]
   pull_request:
+    paths: ["ImageRecognitionServcie/**", ".github/workflows/ocr.yml"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ocr-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
     name: Lint, types, tests
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: ImageRecognitionServcie
     env:
       OCR_MODEL_DIR: ${{ github.workspace }}/.cache/ocr-models
     steps:
@@ -27,6 +32,7 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
+          cache-dependency-glob: ImageRecognitionServcie/uv.lock
 
       - name: Install dependencies
         run: uv sync --locked
@@ -47,7 +53,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.OCR_MODEL_DIR }}
-          key: ocr-models-${{ hashFiles('src/ocr_service/config.py', 'uv.lock') }}
+          key: ocr-models-${{ hashFiles('ImageRecognitionServcie/src/ocr_service/config.py', 'ImageRecognitionServcie/uv.lock') }}
 
       - name: Tests
         run: uv run pytest -v
@@ -64,7 +70,7 @@ jobs:
       - name: Build
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ImageRecognitionServcie
           load: true
           push: false
           tags: image-recognition-servcie:ci

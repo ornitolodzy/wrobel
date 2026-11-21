@@ -1,0 +1,7 @@
+# PRAWDOWID: cały stack z katalogu głównego monorepo.
+#   docker compose up -d --build        (albo: make up / ./Infra/docker/start.sh)
+# Definicja serwisów jest w Infra/docker/docker-compose.yml; ścieżki i .env liczą się względem tamtego katalogu.
+name: wrobel
+
+include:
+  - Infra/docker/docker-compose.yml
