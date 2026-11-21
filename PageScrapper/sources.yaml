@@ -1,0 +1,176 @@
+# Public source catalog. Every document in the database comes from one of these sources.
+# Rules for adding / removing sources: see SOURCES.md
+# source_type: official = government / primary source, fact_check = fact-checking organisation,
+#              disinfo_db = catalog of known disinformation cases (context only, never a verdict by itself)
+
+sources:
+  - id: rcb-komunikaty
+    name: RCB - komunikaty i Alerty RCB
+    publisher: Rządowe Centrum Bezpieczeństwa
+    source_type: official
+    adapter: govpl_list
+    url: https://www.gov.pl/web/rcb/komunikaty
+    max_items: 30
+    license: Materiały urzędowe (art. 4 ustawy o prawie autorskim), informacja publiczna
+    description: Alerty RCB i komunikaty kryzysowe (np. atak z powietrza, woda niezdatna do picia)
+
+  - id: mon-aktualnosci
+    name: MON - aktualności
+    publisher: Ministerstwo Obrony Narodowej
+    source_type: official
+    adapter: govpl_list
+    url: https://www.gov.pl/web/obrona-narodowa/aktualnosci5
+    max_items: 20
+    license: Materiały urzędowe (art. 4 ustawy o prawie autorskim), informacja publiczna
+    description: Komunikaty Ministerstwa Obrony Narodowej
+
+  - id: odyseusz-msz
+    name: Odyseusz - informacje dla podróżujących
+    publisher: Ministerstwo Spraw Zagranicznych
+    source_type: official
+    adapter: odyseusz
+    url: https://odyseusz.gov.pl/
+    max_items: 25
+    refresh_known: true
+    license: Materiały urzędowe (art. 4 ustawy o prawie autorskim), informacja publiczna
+    description: Ostrzeżenia MSZ i profile krajów (poziom ostrzeżenia, bezpieczeństwo, wjazd)
+    options:
+      countries: [UA, BY, RU, LT, LV, EE, DE, CZ, SK, IL, PS, LB, IR, IT, ES, GR, HR, TR, EG, FR, GB, US, TH, AE, GE]
+
+  - id: policja-aktualnosci
+    name: Policja - aktualności
+    publisher: Komenda Główna Policji
+    source_type: official
+    adapter: html_list
+    url: https://policja.pl/pol/aktualnosci
+    max_items: 20
+    license: Materiały urzędowe (art. 4 ustawy o prawie autorskim), informacja publiczna
+    description: Komunikaty Komendy Głównej Policji
+    options:
+      link_pattern: '/pol/aktualnosci/\d+,'
+      date_selector: span.data
+
+  - id: policja-mazowiecka
+    name: Policja mazowiecka - aktualności
+    publisher: Komenda Wojewódzka Policji z siedzibą w Radomiu
+    source_type: official
+    adapter: html_list
+    url: https://mazowiecka.policja.gov.pl/ra/aktualnosci/aktualnosci
+    max_items: 20
+    license: Materiały urzędowe (art. 4 ustawy o prawie autorskim), informacja publiczna
+    description: Komunikaty policji z województwa mazowieckiego (z listy źródeł organizatora)
+    options:
+      link_pattern: '/ra/aktualnosci/aktualnosci/\d+,'
+      date_selector: span.data
+
+  - id: cert-polska
+    name: CERT Polska - ostrzeżenia i analizy
+    publisher: CERT Polska (NASK - Państwowy Instytut Badawczy)
+    source_type: official
+    adapter: rss
+    url: https://cert.pl/feed/
+    max_items: 30
+    license: Treści CERT Polska / NASK - używamy do wyszukiwania i cytowania fragmentów z linkiem do źródła
+    description: Ostrzeżenia o zagrożeniach w sieci, kampaniach phishingowych i podatnościach
+
+  - id: isap-dziennik-ustaw
+    name: ISAP - Dziennik Ustaw (API ELI Sejmu)
+    publisher: Sejm RP - Internetowy System Aktów Prawnych
+    source_type: official
+    adapter: sejm_eli
+    url: https://api.sejm.gov.pl/eli/acts
+    max_items: 40
+    license: Akty normatywne nie są przedmiotem prawa autorskiego (art. 4 pkt 1 ustawy o prawie autorskim)
+    description: Najnowsze akty prawne z Dziennika Ustaw (tytuł, status, daty ogłoszenia i wejścia w życie)
+    options:
+      publisher: DU
+
+  - id: demagog-fake-news
+    name: Demagog - fake news
+    publisher: Stowarzyszenie Demagog
+    source_type: fact_check
+    adapter: rss
+    url: https://demagog.org.pl/fake_news/feed/
+    max_items: 30
+    license: "Sygnatariusz IFCN i EFCSN. robots.txt: search=yes, ai-train=no - używamy tylko do wyszukiwania i cytowania z linkiem, nie do trenowania modeli"
+    description: Zweryfikowane fałszywe informacje z mediów społecznościowych
+    options:
+      drop_lines_starting_with:
+        - Obalamy fałszywe informacje pojawiające się w mediach społecznościowych
+
+  - id: konkret24
+    name: Konkret24 - weryfikacje
+    publisher: Konkret24 (TVN24)
+    source_type: fact_check
+    adapter: rss
+    url: https://konkret24.tvn24.pl/najnowsze.xml
+    max_items: 30
+    license: Treści chronione prawem autorskim wydawcy - używamy do wyszukiwania i cytowania fragmentów z linkiem (prawo cytatu)
+    description: Weryfikacje faktów i dezinformacji z redakcji fact-checkingowej TVN24
+
+  - id: fakenews-pl
+    name: FakeNews.pl - analizy
+    publisher: Fundacja Przeciwdziałania Dezinformacji (FakeNews.pl)
+    source_type: fact_check
+    adapter: rss
+    url: https://fakenews.pl/feed/
+    max_items: 20
+    license: Treści chronione prawem autorskim wydawcy - używamy do wyszukiwania i cytowania fragmentów z linkiem (prawo cytatu)
+    description: Analizy i weryfikacje dezinformacji (bez wpisów blogowych i ogłoszeń o szkoleniach)
+    options:
+      exclude_categories: [Blog, Szkolenie, Warsztaty]
+
+  - id: euvsdisinfo-artykuly
+    name: EUvsDisinfo - analizy
+    publisher: EUvsDisinfo (EEAS East StratCom Task Force)
+    source_type: fact_check
+    adapter: rss
+    url: https://euvsdisinfo.eu/feed/
+    max_items: 20
+    license: Treści EUvsDisinfo - używamy do wyszukiwania i cytowania fragmentów z linkiem do źródła
+    description: Analizy rosyjskich operacji dezinformacyjnych (po angielsku)
+    options:
+      language: en
+
+  - id: google-factcheck
+    name: Google Fact Check Tools API
+    publisher: Weryfikatorzy faktów (ClaimReview)
+    source_type: fact_check
+    adapter: google_factcheck
+    url: https://factchecktools.googleapis.com/v1alpha1/claims:search
+    max_items: 50
+    license: Google Fact Check Tools API, dane ClaimReview publikowane przez weryfikatorów faktów
+    description: Oceny twierdzeń od weryfikatorów faktów z całego świata, wymaga GOOGLE_FACTCHECK_API_KEY
+    options:
+      language: pl
+      max_age_days: 365
+      queries: [Polska, Ukraina, Rosja, NATO, wojsko, dron, szczepionki, wybory, Unia Europejska, migranci]
+
+  - id: euvsdisinfo-baza
+    name: EUvsDisinfo - baza przypadków dezinformacji
+    publisher: EUvsDisinfo (EEAS East StratCom Task Force)
+    source_type: disinfo_db
+    adapter: euvsdisinfo_mcp
+    url: https://euvsdisinfo-mcp-server.vercel.app/mcp
+    max_items: 300
+    license: Baza EUvsDisinfo udostępniana przez oficjalny serwer MCP (wymaga tokenu) - używamy jako kontekst i cytujemy z linkiem
+    description: Znane przypadki prokremlowskiej dezinformacji (twierdzenie + ustalenia), wymaga EUVSDISINFO_TOKEN
+
+  - id: baza-incydentow
+    name: Baza incydentów od organizatora (JSON/CSV)
+    publisher: Organizator HackNation 2026 / MSZ
+    source_type: disinfo_db
+    adapter: file_import
+    url: urn:prawdowid:baza-incydentow
+    max_items: 500
+    license: Zgodnie z licencją podaną przez organizatora razem z plikiem
+    description: Import pliku z katalogu imports/ - pole mapowania ustawiamy, gdy dostaniemy plik
+    options:
+      file: incidents.json
+      fields:
+        id: id
+        url: url
+        title: title
+        text: [claim, description, text]
+        published_at: date
+        publisher: source
