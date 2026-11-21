@@ -98,9 +98,24 @@ class Downstream:
                 mock=True,
             )
         data = await self._post(
-            "image_recognition", "/text-recognition-from-img", files={"file": (filename, content, mime)}
+            "image_recognition", "/v1/ocr", files={"file": (filename, content, mime)}
         )
         try:
+            if isinstance(data, dict):
+                blocks = data.get("blocks")
+                confidence = None
+                if isinstance(blocks, list) and blocks:
+                    values = [block.get("confidence") for block in blocks if isinstance(block, dict)]
+                    values = [value for value in values if isinstance(value, (int, float))]
+                    if values:
+                        confidence = sum(values) / len(values)
+                data = {
+                    "text": data.get("text", ""),
+                    "confidence": confidence,
+                    "language": data.get("lang"),
+                    "limitations": [],
+                    "mock": False,
+                }
             return OcrResponse.model_validate(data)
         except ValidationError as exc:
             raise DownstreamError("image_recognition", "bad_response", "Serwis OCR zwrócił odpowiedź w niepoprawnym formacie.") from exc
@@ -160,7 +175,8 @@ class Downstream:
                 result.append(ServiceHealth(name=name, configured=bool(base), status="mock"))
                 continue
             try:
-                resp = await self.client.get(f"{base}/health", timeout=3.0)
+                health_path = "/healthz" if name == "image_recognition" else "/health"
+                resp = await self.client.get(f"{base}{health_path}", timeout=3.0)
                 ok = resp.status_code < 400
                 result.append(
                     ServiceHealth(name=name, configured=True, status="ok" if ok else "down", detail=None if ok else f"HTTP {resp.status_code}")
