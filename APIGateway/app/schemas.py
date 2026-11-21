@@ -98,6 +98,20 @@ class ModelInfo(BaseModel):
     name: str
 
 
+class PageInfo(BaseModel):
+    final_url: str
+    title: str | None = None
+    publisher: str | None = None
+    published_at: str | None = None
+    retrieved_at: str | None = None
+
+
+class ScrapedPage(PageInfo):
+    url: str
+    text: str
+    rendered: bool = False
+
+
 class CheckResponse(BaseModel):
     check_id: str
     status: CheckStatus
@@ -110,6 +124,7 @@ class CheckResponse(BaseModel):
     limitations: list[str] = Field(default_factory=list)
     clarification_question: str | None = None
     ocr_text: str | None = None
+    page: PageInfo | None = None
     model: ModelInfo | None = None
     mock: bool = False
     pii_masked: bool = False

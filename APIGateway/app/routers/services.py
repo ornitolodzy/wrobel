@@ -11,10 +11,10 @@ from app.validation import validate_image
 
 router = APIRouter(prefix="/api/v1", tags=["services"])
 
-_ERROR_HTTP = {"api_limit": 503, "timeout": 504}
+_ERROR_HTTP = {"api_limit": 503, "timeout": 504, "not_found": 404, "not_configured": 503}
 
 
-def _to_http(exc: DownstreamError) -> HTTPException:
+def to_http(exc: DownstreamError) -> HTTPException:
     return HTTPException(
         status_code=_ERROR_HTTP.get(exc.code, 502),
         detail={"status": exc.status.value, "code": exc.code, "message": exc.message},
@@ -32,7 +32,7 @@ async def scrap_all(
         result = await downstream.scrap_all(body)
     except DownstreamError as exc:
         await db.log_event("downstream_error", client=client.name, detail={"service": exc.service, "code": exc.code})
-        raise _to_http(exc) from exc
+        raise to_http(exc) from exc
     await db.log_event("scrap_all_triggered", client=client.name, detail={"mock": bool(result.get("mock"))})
     return result
 
@@ -52,6 +52,6 @@ async def text_recognition_from_img(
         result = await downstream.ocr(filename, data, mime)
     except DownstreamError as exc:
         await db.log_event("downstream_error", client=client.name, detail={"service": exc.service, "code": exc.code})
-        raise _to_http(exc) from exc
+        raise to_http(exc) from exc
     await db.log_event("ocr_request", client=client.name, detail={"mime": mime, "bytes": len(data), "mock": result.mock})
     return result

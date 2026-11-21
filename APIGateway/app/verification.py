@@ -17,9 +17,12 @@ from app.schemas import (
     LlmVerifyResponse,
     ModelInfo,
     OcrResponse,
+    PageInfo,
     Verdict,
 )
-from app.services import Downstream, DownstreamError
+from app.services import Downstream, DownstreamError, PageUnreadable
+
+_MAX_PAGE_CHARS = 50_000
 
 _HTTP_STATUS = {
     CheckStatus.completed: status.HTTP_200_OK,
@@ -52,6 +55,7 @@ class CheckRunner:
             input_for_log=masked,
             content={"url": url},
             pii_types=pii_types,
+            page_url=url,
         )
 
     async def verify_image(self, filename: str, data: bytes, mime: str) -> JSONResponse:
@@ -71,6 +75,7 @@ class CheckRunner:
         content: dict[str, Any] | None,
         pii_types: list[str],
         image: tuple[str, bytes, str] | None = None,
+        page_url: str | None = None,
     ) -> JSONResponse:
         check_id = str(uuid.uuid4())
         created_at = utcnow()
@@ -84,9 +89,30 @@ class CheckRunner:
         mock = False
         error: DownstreamError | None = None
         ocr_masked: str | None = None
+        page_info: PageInfo | None = None
         extra_limitations: list[str] = []
 
         try:
+            if page_url is not None:
+                try:
+                    page = await self.downstream.scrape(page_url)
+                except PageUnreadable as exc:
+                    result = LlmVerifyResponse(status="needs_clarification", clarification_question=exc.message)
+                else:
+                    if page is None:
+                        extra_limitations.append("Treść strony nie została pobrana - PageScrapper nie jest podłączony.")
+                    else:
+                        page_text, page_pii = mask_pii(page.text[:_MAX_PAGE_CHARS])
+                        pii_types = sorted(set(pii_types) | set(page_pii))
+                        page_info = PageInfo.model_validate(page.model_dump())
+                        content = {
+                            "url": page_url,
+                            "text": page_text,
+                            "title": page.title,
+                            "publisher": page.publisher,
+                            "published_at": page.published_at,
+                        }
+
             if image is not None:
                 ocr: OcrResponse = await self.downstream.ocr(*image)
                 mock = ocr.mock
@@ -131,6 +157,7 @@ class CheckRunner:
                     "To nie jest ocena prawdziwości treści."
                 ],
                 ocr_text=ocr_masked,
+                page=page_info,
                 model=model,
                 pii_masked=bool(pii_types),
                 error=ErrorInfo(code=error.code, message=error.message),
@@ -149,6 +176,7 @@ class CheckRunner:
                 limitations=result.limitations + [lim for lim in extra_limitations if lim not in result.limitations],
                 clarification_question=result.clarification_question,
                 ocr_text=ocr_masked,
+                page=page_info,
                 model=model,
                 mock=mock,
                 pii_masked=bool(pii_types),

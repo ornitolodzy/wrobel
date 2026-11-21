@@ -16,7 +16,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.config import Settings, get_settings
 from app.db import Database
 from app.deps import RateLimiter
-from app.routers import admin, checks, health, services, verify
+from app.routers import admin, checks, health, knowledge, services, verify
 from app.runtime_config import RuntimeConfigStore
 from app.services import Downstream
 
@@ -118,6 +118,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     app.include_router(health.router)
     app.include_router(verify.router)
     app.include_router(services.router)
+    app.include_router(knowledge.router)
     app.include_router(checks.router)
     app.include_router(admin.router)
 

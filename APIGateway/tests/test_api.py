@@ -348,3 +348,133 @@ def test_forwarded_for_ignored_from_untrusted_client(make_client) -> None:
         assert c.post("/api/v1/verify/claim", json={"text": "twierdzenie"}, headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 200
         r = c.post("/api/v1/verify/claim", json={"text": "twierdzenie"}, headers={"X-Forwarded-For": "2.2.2.2"})
         assert r.status_code == 429
+
+
+SCRAPED_PAGE = {
+    "url": "https://www.gov.pl/web/rcb/alert",
+    "final_url": "https://www.gov.pl/web/rcb/alert",
+    "title": "Alert RCB - atak z powietrza",
+    "publisher": "Rządowe Centrum Bezpieczeństwa",
+    "published_at": "2026-11-20",
+    "retrieved_at": "2026-11-21T15:00:00Z",
+    "text": "UWAGA! Zagrożenie atakiem z powietrza. Kontakt: rcb@example.com",
+    "rendered": False,
+}
+SCRAPER_URLS = {**LLM_URLS, "page_scrapper_url": "http://scraper:8002"}
+
+
+def scraper_handler(scrape_response: httpx.Response, captured: list[dict]):
+    base = llm_handler(captured)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/scrape":
+            return scrape_response
+        return base(request)
+
+    return handler
+
+
+def test_url_without_scraper_sends_only_url(make_client) -> None:
+    captured: list[dict] = []
+    with make_client(llm_handler(captured), **LLM_URLS) as c:
+        body = c.post("/api/v1/verify/url", json={"url": "https://www.gov.pl/web/rcb/alert"}, headers=WEB).json()
+        assert captured[0]["content"] == {"url": "https://www.gov.pl/web/rcb/alert"}
+        assert any("PageScrapper nie jest podłączony" in lim for lim in body["limitations"])
+        assert body["page"] is None
+
+
+def test_url_is_scraped_before_llm(make_client) -> None:
+    captured: list[dict] = []
+    with make_client(scraper_handler(httpx.Response(200, json=SCRAPED_PAGE), captured), **SCRAPER_URLS) as c:
+        r = c.post("/api/v1/verify/url", json={"url": "https://www.gov.pl/web/rcb/alert"}, headers=WEB)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        content = captured[0]["content"]
+        assert content["url"] == "https://www.gov.pl/web/rcb/alert"
+        assert content["title"] == "Alert RCB - atak z powietrza"
+        assert content["published_at"] == "2026-11-20"
+        assert "Zagrożenie atakiem z powietrza" in content["text"]
+        assert "rcb@example.com" not in content["text"]
+        assert body["page"]["publisher"] == "Rządowe Centrum Bezpieczeństwa"
+        assert body["pii_masked"] is True
+
+
+def test_unreadable_page_needs_clarification(make_client) -> None:
+    captured: list[dict] = []
+    unreadable = httpx.Response(422, json={"detail": {"code": "no_text", "message": "Nie udało się odczytać treści strony. Wklej tekst albo prześlij zrzut ekranu."}})
+    with make_client(scraper_handler(unreadable, captured), **SCRAPER_URLS) as c:
+        r = c.post("/api/v1/verify/url", json={"url": "https://www.pap.pl/"}, headers=WEB)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "needs_clarification"
+        assert "zrzut ekranu" in body["clarification_question"]
+        assert body["claims"] == []
+        assert captured == []
+
+
+def test_scraper_down_is_technical_error(make_client) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/scrape":
+            raise httpx.ConnectError("refused", request=request)
+        return llm_handler()(request)
+
+    with make_client(handler, **SCRAPER_URLS) as c:
+        r = c.post("/api/v1/verify/url", json={"url": "https://www.gov.pl/web/rcb/alert"}, headers=WEB)
+        assert r.status_code == 502
+        assert r.json()["status"] == "error"
+        assert r.json()["error"]["code"] == "service_unavailable"
+
+
+SOURCES = [{"id": "rcb-komunikaty", "source_type": "official", "documents": 5}]
+RUN_ID = "aae0142c-d505-4230-ac88-cbf36a87130a"
+
+
+def knowledge_handler(seen: list[str]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        path = request.url.path
+        if path == "/sources":
+            return httpx.Response(200, json=SOURCES)
+        if path == "/stats":
+            return httpx.Response(200, json={"documents": 280, "domain_count": 10})
+        if path == "/scrap/runs":
+            return httpx.Response(200, json=[{"run_id": RUN_ID, "status": "finished"}])
+        if path == f"/scrap/runs/{RUN_ID}":
+            return httpx.Response(200, json={"run_id": RUN_ID, "status": "finished"})
+        if path == "/documents":
+            return httpx.Response(200, json={"total": 1, "items": [{"id": 1}]})
+        if path == "/documents/1":
+            return httpx.Response(200, json={"id": 1, "text": "pełna treść"})
+        return httpx.Response(404, json={"detail": "Nie znaleziono."})
+
+    return handler
+
+
+def test_sources_are_public(make_client) -> None:
+    seen: list[str] = []
+    with make_client(knowledge_handler(seen), page_scrapper_url="http://scraper:8002") as c:
+        r = c.get("/api/v1/sources")
+        assert r.status_code == 200
+        assert r.json() == SOURCES
+        assert c.get("/api/v1/corpus/stats").json()["domain_count"] == 10
+
+
+def test_knowledge_admin_endpoints(make_client) -> None:
+    seen: list[str] = []
+    with make_client(knowledge_handler(seen), page_scrapper_url="http://scraper:8002") as c:
+        for path in ["/api/v1/scrap/runs", f"/api/v1/scrap/runs/{RUN_ID}", "/api/v1/documents", "/api/v1/documents/1"]:
+            assert c.get(path).status_code == 401, path
+            assert c.get(path, headers=ADMIN).status_code == 200, path
+
+        c.get("/api/v1/documents", params={"source_id": "rcb-komunikaty", "limit": 5}, headers=ADMIN)
+        assert seen[-1] == "http://scraper:8002/documents?limit=5&offset=0&source_id=rcb-komunikaty"
+        assert c.get("/api/v1/documents/999", headers=ADMIN).status_code == 404
+        assert c.get("/api/v1/scrap/runs/nie-uuid", headers=ADMIN).status_code == 422
+        assert c.get("/api/v1/documents", params={"source_id": "../admin"}, headers=ADMIN).status_code == 422
+
+
+def test_knowledge_without_scraper(make_client) -> None:
+    with make_client() as c:
+        r = c.get("/api/v1/sources")
+        assert r.status_code == 503
+        assert r.json()["detail"]["code"] == "not_configured"

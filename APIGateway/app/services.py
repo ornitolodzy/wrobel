@@ -6,7 +6,15 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.runtime_config import RuntimeConfigStore
-from app.schemas import CheckStatus, ClaimResult, LlmVerifyResponse, OcrResponse, ServiceHealth, Verdict
+from app.schemas import (
+    CheckStatus,
+    ClaimResult,
+    LlmVerifyResponse,
+    OcrResponse,
+    ScrapedPage,
+    ServiceHealth,
+    Verdict,
+)
 
 logger = logging.getLogger("gateway.services")
 
@@ -20,6 +28,13 @@ class DownstreamError(Exception):
         self.code = code
         self.message = message
         self.status = status
+
+
+class PageUnreadable(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 class Downstream:
@@ -89,6 +104,48 @@ class Downstream:
             return OcrResponse.model_validate(data)
         except ValidationError as exc:
             raise DownstreamError("image_recognition", "bad_response", "Serwis OCR zwrócił odpowiedź w niepoprawnym formacie.") from exc
+
+    async def scrape(self, url: str) -> ScrapedPage | None:
+        if self.is_mock("page_scrapper"):
+            return None
+        target = f"{self.services['page_scrapper']}/scrape"
+        try:
+            resp = await self.client.post(target, json={"url": url})
+        except httpx.TimeoutException as exc:
+            raise DownstreamError("page_scrapper", "timeout", "Serwis 'page_scrapper' nie odpowiedział w wyznaczonym czasie.") from exc
+        except httpx.RequestError as exc:
+            raise DownstreamError("page_scrapper", "service_unavailable", "Serwis 'page_scrapper' jest niedostępny.") from exc
+
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail")
+            except ValueError:
+                detail = None
+            if isinstance(detail, dict) and detail.get("message"):
+                raise PageUnreadable(detail.get("code", "unreadable"), detail["message"])
+            raise DownstreamError("page_scrapper", "upstream_error", f"Serwis 'page_scrapper' zwrócił błąd {resp.status_code}.")
+        try:
+            return ScrapedPage.model_validate(resp.json())
+        except (ValueError, ValidationError) as exc:
+            raise DownstreamError("page_scrapper", "bad_response", "Serwis 'page_scrapper' zwrócił odpowiedź w niepoprawnym formacie.") from exc
+
+    async def scraper_get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        if self.is_mock("page_scrapper"):
+            raise DownstreamError("page_scrapper", "not_configured", "PageScrapper nie jest podłączony.")
+        try:
+            resp = await self.client.get(f"{self.services['page_scrapper']}{path}", params=params)
+        except httpx.TimeoutException as exc:
+            raise DownstreamError("page_scrapper", "timeout", "Serwis 'page_scrapper' nie odpowiedział w wyznaczonym czasie.") from exc
+        except httpx.RequestError as exc:
+            raise DownstreamError("page_scrapper", "service_unavailable", "Serwis 'page_scrapper' jest niedostępny.") from exc
+        if resp.status_code == 404:
+            raise DownstreamError("page_scrapper", "not_found", "Nie znaleziono.")
+        if resp.status_code >= 400:
+            raise DownstreamError("page_scrapper", "upstream_error", f"Serwis 'page_scrapper' zwrócił błąd {resp.status_code}.")
+        try:
+            return resp.json()
+        except ValueError as exc:
+            raise DownstreamError("page_scrapper", "bad_response", "Serwis 'page_scrapper' zwrócił niepoprawną odpowiedź.") from exc
 
     async def scrap_all(self, body: dict[str, Any]) -> dict[str, Any]:
         if self.is_mock("page_scrapper"):
