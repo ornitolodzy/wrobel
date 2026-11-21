@@ -42,7 +42,34 @@ def load_parameters(conf_source: str | None = None, env: str | None = None) -> d
         env=env or os.environ.get("PRAWDOWID_ENV") or "local",
         merge_strategy={"parameters": "soft"},  # local overrides only the keys it lists
     )
-    return dict(loader["parameters"])
+    return _env_overrides(dict(loader["parameters"]))
+
+
+def _env_overrides(params: dict) -> dict:
+    """Deployment knobs (docker-compose / .env) on top of conf/*, so swapping the model or the
+    retrieval backend needs no rebuild:
+      PRAWDOWID_LLM_PROVIDER  mock | litellm | nli          (all roles)
+      PRAWDOWID_LLM_MODEL     LiteLLM model string           (all roles)
+      PRAWDOWID_LLM_API_BASE  e.g. vLLM/Ollama endpoint for Bielik
+      PRAWDOWID_RETRIEVAL_BACKEND  mock | postgres | neo4j
+    """
+    provider = os.environ.get("PRAWDOWID_LLM_PROVIDER", "").strip()
+    model = os.environ.get("PRAWDOWID_LLM_MODEL", "").strip()
+    api_base = os.environ.get("PRAWDOWID_LLM_API_BASE", "").strip()
+    if provider or model or api_base:
+        roles = params["llm"]["roles"]
+        for role, cfg in roles.items():
+            cfg = dict(cfg)
+            if provider:
+                cfg["provider"] = provider
+            if model:
+                cfg["model"] = model
+            if api_base:
+                cfg["api_base"] = api_base
+            roles[role] = cfg
+    if backend := os.environ.get("PRAWDOWID_RETRIEVAL_BACKEND", "").strip():
+        params["retrieval"]["backend"] = backend
+    return params
 
 
 def _catalog(raw: str, channel: str, params: dict) -> DataCatalog:

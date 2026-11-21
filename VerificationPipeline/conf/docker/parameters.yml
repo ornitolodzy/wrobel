@@ -1,0 +1,17 @@
+# Environment used inside the root docker-compose stack (PRAWDOWID_ENV=docker).
+# Overrides only the keys listed here; everything else comes from conf/base.
+# LLM model per deployment: PRAWDOWID_LLM_PROVIDER / PRAWDOWID_LLM_MODEL (see runtime._env_overrides)
+# or per request from the API Gateway (PATCH /api/v1/config).
+
+retrieval:
+  # Shared Postgres of the stack: corpus fed by PageScrapper (RAG_INGEST_URL -> /ingest).
+  backend: postgres
+
+embeddings:
+  # mock = deterministic word-hash vectors, no network. Switch to ollama + bge-m3 when a server
+  # is available; the corpus is re-embedded automatically on the next sync (model change).
+  provider: mock
+
+ingestion:
+  chunk_chars: 1200
+  chunk_overlap: 150
