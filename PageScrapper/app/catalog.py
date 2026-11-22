@@ -9,7 +9,7 @@ Adapter = Literal[
     "govpl_list", "html_list", "odyseusz", "rss", "sejm_eli", "google_factcheck", "euvsdisinfo_mcp", "file_import",
     "live_only",
 ]
-LiveSearchKind = Literal["wp_rest", "html", "rendered"]
+LiveSearchKind = Literal["wp_rest", "html", "rendered", "factcheck_api"]
 
 
 class LiveSearchConfig(BaseModel):
@@ -18,6 +18,8 @@ class LiveSearchConfig(BaseModel):
     kind: wp_rest  - WordPress REST API (`{url}/wp-json/wp/v2/search`), `url` = adres witryny
           html     - zwykła strona wyników, `url` z `{query}`, linki wybierane przez `link_pattern`
           rendered - jak html, ale strona wyników budowana JavaScriptem (Playwright)
+          factcheck_api - Google Fact Check Tools API (claims:search), `url` = endpoint API;
+                          rekordy ClaimReview zapisujemy wprost, bez pobierania stron weryfikatorów
     """
 
     model_config = ConfigDict(extra="forbid")

@@ -49,9 +49,35 @@ def test_reprints_are_not_independent():
     assert v.label == "brak_dowodow"
 
 
-def test_factcheck_refutes():
+def test_factcheck_rating_refutes():
+    rating = ev("a", "factcheck").model_copy(update={"section": "ocena"})
+    assert decide(CLAIM, [st("a", "refutes")], {"a": rating}, NOW).label == "falszywe"
+
+
+def test_single_factcheck_prose_is_not_a_ruling():
+    # One fact-check's text about the same person/topic is not its verdict on this claim
     e = {"a": ev("a", "factcheck")}
-    assert decide(CLAIM, [st("a", "refutes")], e, NOW).label == "falszywe"
+    v = decide(CLAIM, [st("a", "refutes")], e, NOW)
+    assert v.label == "brak_dowodow" and v.sources  # shown, but not decisive
+
+
+def test_two_independent_factchecks_refute():
+    e = {"a": ev("a", "factcheck"), "b": ev("b", "factcheck")}
+    assert decide(CLAIM, [st("a", "refutes"), st("b", "refutes")], e, NOW).label == "falszywe"
+
+
+def test_factcheck_rating_confirms():
+    rating = ev("a", "factcheck").model_copy(update={"section": "ocena"})
+    assert decide(CLAIM, [st("a", "supports")], {"a": rating}, NOW).label == "potwierdzone"
+
+
+def test_announcement_is_not_proof_it_happened():
+    e = {"a": ev("a", "primary")}
+    v = decide(CLAIM, [st("a", "announced")], e, NOW)
+    assert v.label == "brak_dowodow"
+    assert v.lead == "Nie da się tego jednoznacznie potwierdzić."
+    assert v.sources[0].role == "zapowiedz"
+    assert "zapowiedzi" in v.reasons[0]
 
 
 def test_missing_context_is_misleading():
@@ -82,3 +108,12 @@ def test_archive_warning():
 def test_irrelevant_ignored():
     e = {"a": ev("a", "primary")}
     assert decide(CLAIM, [st("a", "irrelevant")], e, NOW).label == "brak_dowodow"
+
+
+def test_nothing_found_names_the_needed_source():
+    from prawdowid.pipelines.verification.nodes.compose import template_why
+
+    claim = CLAIM.model_copy(update={"needed_source": "Komunikat MSZ z datą wysłania pisma"})
+    why = template_why(decide(claim, [], {}, NOW), claim)
+    assert "Potrzebne byłoby źródło takie jak: komunikat MSZ z datą wysłania pisma." in why
+    assert "Brak wyniku w bazie nie oznacza, że to nieprawda." in why

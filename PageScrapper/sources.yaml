@@ -175,6 +175,11 @@ sources:
       language: pl
       max_age_days: 365
       queries: [Polska, Ukraina, Rosja, NATO, wojsko, dron, szczepionki, wybory, Unia Europejska, migranci]
+    # Na żywo: oceny weryfikatorów (m.in. Demagog, AFP, Konkret24) wprost z indeksu ClaimReview
+    live_search:
+      kind: factcheck_api
+      url: https://factchecktools.googleapis.com/v1alpha1/claims:search
+      max_results: 5
 
   - id: euvsdisinfo-baza
     name: EUvsDisinfo - baza przypadków dezinformacji

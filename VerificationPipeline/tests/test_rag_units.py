@@ -133,3 +133,22 @@ def test_retrieval_metrics_and_calibration():
     cal = calibrate_threshold(rows, current=0.3)
     assert cal["current_accuracy"] == 0.75 and cal["suggested_accuracy"] == 1.0
     assert 0.45 < cal["suggested_rerank_min"] <= 0.5
+
+
+def test_rating_line_of_factcheck_record_becomes_rating_chunk():
+    from datetime import datetime, timezone
+
+    from prawdowid.models import Evidence
+    from prawdowid.retrieval.postgres import rating_evidence
+
+    now = datetime(2026, 11, 21, tzinfo=timezone.utc)
+    base = dict(doc_id="d1", publisher="Demagog", title="t", url="https://demagog.org.pl/x",
+                fetched_at=now, dup_group="g1", rerank_score=0.9)
+    record = Evidence(chunk_id="d1:0", source_type="factcheck", **base,
+                      text="Twierdzenie: PAP usunęła depeszę.\nOcena weryfikatora: Fałsz\nWeryfikator: Demagog")
+    prose = Evidence(chunk_id="d2:0", source_type="factcheck", **{**base, "doc_id": "d2"},
+                     text="Artykuł bez linii z oceną.")
+    official = Evidence(chunk_id="d3:0", source_type="primary", **{**base, "doc_id": "d3"},
+                        text="Ocena weryfikatora: Fałsz")
+    out = rating_evidence([record, record, prose, official])
+    assert [(e.chunk_id, e.section, e.text) for e in out] == [("d1:rating", "ocena", "Fałsz")]

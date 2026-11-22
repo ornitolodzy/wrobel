@@ -6,7 +6,7 @@ from kedro.pipeline import Pipeline, node, pipeline
 from .nodes import (
     assemble,
     build_queries,
-    compose_answer,
+    compose,
     decide_all,
     extract_claims,
     judge_stance,
@@ -41,14 +41,14 @@ def create_pipeline(**kwargs) -> Pipeline:
                 name="decide",
             ),
             node(
-                compose_answer,
+                compose,
                 ["claims", "verdicts", "params:llm"],
-                "answer",
+                ["answer", "verdicts_explained"],
                 name="compose",
             ),
             node(
                 assemble,
-                ["norm_input", "claims", "verdicts", "answer"],
+                ["norm_input", "claims", "verdicts_explained", "answer"],
                 "result",
                 name="assemble",
             ),

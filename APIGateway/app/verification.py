@@ -331,6 +331,7 @@ def _live_info(previous_check_id: str, data: dict[str, Any]) -> LiveSearchInfo:
         if isinstance(d, dict) and d.get("url") and d.get("ingested", True)
     ]
     searched = ", ".join(s.name for s in sources if s.status in ("ok", "no_results"))
+    failed = ", ".join(s.name for s in sources if s.status == "error")
     if not searched:
         message = "Nie udało się przeszukać na żywo żadnej z zaufanych witryn."
     elif documents:
@@ -340,6 +341,9 @@ def _live_info(previous_check_id: str, data: dict[str, Any]) -> LiveSearchInfo:
         )
     else:
         message = f"Przeszukano na żywo: {searched} - brak nowych materiałów na ten temat."
+    if failed:
+        # Awaria źródła to nie „brak artykułu”: mówimy, czego nie dało się sprawdzić.
+        message += f" Nie mogę teraz sprawdzić: {failed} (błąd dostępu), więc brak wyniku stamtąd nic nie znaczy."
     return LiveSearchInfo(
         previous_check_id=previous_check_id,
         terms=[str(t) for t in data.get("terms", [])],

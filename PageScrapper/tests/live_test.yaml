@@ -41,3 +41,13 @@ sources:
     live_search:
       kind: wp_rest
       url: https://blocked.example.com
+
+  - id: google-factcheck
+    name: Google Fact Check Tools API
+    publisher: Weryfikatorzy faktów (ClaimReview)
+    source_type: fact_check
+    adapter: google_factcheck
+    url: https://factchecktools.googleapis.com/v1alpha1/claims:search
+    live_search:
+      kind: factcheck_api
+      url: https://factchecktools.googleapis.com/v1alpha1/claims:search
