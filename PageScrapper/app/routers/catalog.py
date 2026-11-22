@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from app.catalog import SourceConfig
 from app.config import Settings
 from app.db import Document
-from app.schemas import CorpusStats, DocumentList, DocumentOut, SourceOut
+from app.schemas import CorpusStats, DocumentList, DocumentOut, DocumentRevision, RevisionList, SourceOut
 from app.sources.file_import import resolve_import_path
 
 router = APIRouter(tags=["catalog"])
@@ -38,6 +38,8 @@ def _doc_out(doc: Document, full: bool) -> DocumentOut:
         language=doc.language,
         content_hash=doc.content_hash,
         extra=doc.extra,
+        revision=doc.revision or 1,
+        updated_at=doc.updated_at,
         text=doc.text if full else None,
         preview=None if full else doc.text[:300],
     )
@@ -97,6 +99,23 @@ async def list_documents(
 ) -> DocumentList:
     total, docs = await request.app.state.db.list_documents(source_id, limit, offset)
     return DocumentList(total=total, items=[_doc_out(d, full=False) for d in docs])
+
+
+@router.get(
+    "/documents/revisions",
+    response_model=RevisionList,
+    summary="Rewizje wszystkich dokumentów (do rekoncyliacji odbiorców, np. ContextGraph)",
+)
+async def document_revisions(
+    request: Request,
+    limit: int = Query(default=5000, ge=1, le=20000),
+    offset: int = Query(default=0, ge=0),
+) -> RevisionList:
+    total, rows = await request.app.state.db.revisions(limit, offset)
+    return RevisionList(
+        total=total,
+        items=[DocumentRevision(id=i, url=u, revision=r or 1, updated_at=t) for i, u, r, t in rows],
+    )
 
 
 @router.get("/documents/{doc_id}", response_model=DocumentOut, summary="Zwraca jeden dokument z pełną treścią")

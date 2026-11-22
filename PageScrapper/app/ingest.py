@@ -41,12 +41,40 @@ async def schedule_loop(ingestor: "Ingestor", interval_minutes: float, run_on_st
         await asyncio.sleep(interval_minutes * 60)
 
 
+def _accepted(response: httpx.Response) -> bool:
+    """2xx, and a receiver that reports vectors (ContextGraph `unembedded`) has none missing:
+    a document stored without vectors is invisible to dense search until the next reconcile."""
+    if response.status_code >= 400:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return True
+    if isinstance(body, dict) and "unembedded" in body:
+        return body["unembedded"] == 0
+    return True
+
+
 class RagClient:
-    def __init__(self, url: str, transport: httpx.AsyncBaseTransport | None = None) -> None:
-        self.url = url
-        self.client = httpx.AsyncClient(timeout=30, transport=transport)
+    """Pushes every stored document to each receiver. Fast path only: a receiver that missed a
+    document (down, error, no vectors) catches up from GET /documents/revisions."""
+
+    def __init__(self, urls: str | list[str], transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.urls = [urls] if isinstance(urls, str) else list(urls)
+        self.client = httpx.AsyncClient(timeout=60, transport=transport)
+
+    async def _post(self, url: str, payload: dict) -> bool:
+        try:
+            ok = _accepted(await self.client.post(url, json=payload))
+        except httpx.HTTPError as exc:
+            logger.warning("Ingest push to %s failed: %s", url, type(exc).__name__)
+            return False
+        if not ok:
+            logger.warning("Ingest push to %s not accepted for %s", url, payload["url"])
+        return ok
 
     async def send(self, doc: Document) -> bool:
+        """True only if every receiver accepted the document."""
         payload = {
             "url": doc.url,
             "source_id": doc.source_id,
@@ -61,12 +89,10 @@ class RagClient:
             # Fact-checker's own ClaimReview (app/claimreview.py) -> ContextGraph CheckedClaim.
             # Receivers without the field ignore it (VerificationPipeline /ingest).
             "claims": (doc.extra or {}).get("claim_reviews") or [],
+            "revision": doc.revision or 1,
         }
-        try:
-            response = await self.client.post(self.url, json=payload)
-            return response.status_code < 400
-        except httpx.HTTPError:
-            return False
+        results = await asyncio.gather(*(self._post(url, payload) for url in self.urls))
+        return all(results)
 
     async def close(self) -> None:
         await self.client.aclose()

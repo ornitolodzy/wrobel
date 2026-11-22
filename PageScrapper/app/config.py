@@ -27,9 +27,17 @@ class Settings(BaseSettings):
     euvsdisinfo_token: str = ""
     imports_dir: str = "imports"
     rag_ingest_url: str = ""
+    # Several receivers of every stored document, comma-separated (e.g. the ContextGraph
+    # /ingest/document and, during the migration, the pipeline /ingest). Push is only the fast
+    # path: receivers that miss a document catch up from GET /documents/revisions.
+    rag_ingest_urls: str = ""
 
     scrape_interval_minutes: float = 0
     scrape_on_startup: bool = False
+
+    def ingest_targets(self) -> list[str]:
+        urls = [u.strip() for u in self.rag_ingest_urls.split(",")] + [self.rag_ingest_url.strip()]
+        return list(dict.fromkeys(u for u in urls if u))
 
 
 @lru_cache

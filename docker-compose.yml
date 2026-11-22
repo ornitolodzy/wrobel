@@ -115,7 +115,10 @@ services:
       SCRAPE_ON_STARTUP: "false"
       GOOGLE_FACTCHECK_API_KEY: ${GOOGLE_FACTCHECK_API_KEY:-}
       EUVSDISINFO_TOKEN: ${EUVSDISINFO_TOKEN:-}
-      RAG_INGEST_URL: http://verification-pipeline:8000/ingest
+      # Push kazdego zapisanego dokumentu (szybka sciezka). Graf (profil "graph") dogania braki sam:
+      # ContextGraph porownuje rewizje z GET /documents/revisions (SCRAPER_URL nizej).
+      # Migracja do Neo4j: na koncu zostaje tylko context-graph.
+      RAG_INGEST_URLS: ${RAG_INGEST_URLS:-http://verification-pipeline:8000/ingest,http://context-graph:8100/ingest/document}
     volumes:
       - ./PageScrapper/imports:/app/imports:ro
     shm_size: "512mb"
@@ -263,6 +266,10 @@ services:
       EVENTS_MODEL: ${EVENTS_MODEL:-SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M}
       EVENTS_API_BASE: ${EVENTS_API_BASE:-http://host.docker.internal:21434/v1}
       EVENTS_API_KEY: ${EVENTS_API_KEY:-}
+      # Rekoncyliacja z PageScrapperem (zrodlo prawdy): dosyla brakujace / nieaktualne dokumenty
+      # i dolicza wektory. 0 = tylko na zadanie (POST /sync/reconcile, make graph-sync).
+      SCRAPER_URL: http://page-scrapper:8002
+      RECONCILE_INTERVAL_MINUTES: ${GRAPH_RECONCILE_INTERVAL_MINUTES:-10}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

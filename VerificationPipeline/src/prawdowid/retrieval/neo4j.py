@@ -7,7 +7,7 @@ The graph schema is owned by the other team, so every Cypher query is configurab
     (:Chunk {id, text, position, section?, embedding})-[:PART_OF]->(:Document)
     (:Document {id, url, title, published_at, fetched_at, dup_group, rating?})-[:PUBLISHED_BY]->(:Source {publisher, type})
     (:Document)-[:CITES]->(:Document)          fact-checker -> material it checked
-    (:CorpusVersion {id, embedding_model})     optional, to verify the embedding model
+    (:CorpusVersion {id, embedding_model, consistent?})  optional, to verify the embedding model
 
 Retrieval = vector index + full-text index, fused by RRF in Python with every rank kept in the
 RetrievalTrace (same explainability as the Postgres retriever). Graph relations add context:
@@ -49,8 +49,9 @@ DEFAULT_QUERIES = {
                s.publisher AS publisher, s.type AS source_type
         ORDER BY p.url LIMIT $limit
     """,
-    "corpus_version": "MATCH (v:CorpusVersion) RETURN v.id AS id, v.embedding_model AS embedding_model "
-                      "ORDER BY v.id DESC LIMIT 1",
+    # `consistent` false = the graph is being re-embedded with another model (mixed vector spaces).
+    "corpus_version": "MATCH (v:CorpusVersion) RETURN v.id AS id, v.embedding_model AS embedding_model, "
+                      "coalesce(v.consistent, true) AS consistent ORDER BY v.id DESC LIMIT 1",
 }
 
 _WORD = re.compile(r"\w+", re.UNICODE)
@@ -131,7 +132,8 @@ class Neo4jRetriever:
         return evidence
 
     def _corpus_version(self, query: Query):
-        """Version id if the graph declares one; False if its embedding model differs from ours."""
+        """Version id if the graph declares one; False if its embedding model differs from ours
+        or the graph holds vectors from two models (re-embedding in progress)."""
         try:
             rows = self.run(self.queries["corpus_version"])
         except Exception:
@@ -141,6 +143,11 @@ class Neo4jRetriever:
         if rows[0].get("embedding_model") and rows[0]["embedding_model"] != self.embedder.model:
             usage.record(role="retrieval", event="embedding_model_mismatch", claim_id=query.claim_id,
                          corpus_model=rows[0]["embedding_model"], query_model=self.embedder.model)
+            return False
+        if rows[0].get("consistent") is False:
+            # Half re-embedded after a model switch: cosine scores across two models mean nothing.
+            usage.record(role="retrieval", event="embedding_model_mixed", claim_id=query.claim_id,
+                         corpus_model=rows[0].get("embedding_model"))
             return False
         return rows[0].get("id")
 

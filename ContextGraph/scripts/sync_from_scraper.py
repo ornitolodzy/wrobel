@@ -1,72 +1,54 @@
-"""Copy every document PageScrapper has into the graph (one-off backfill or after a reset).
+"""Bring the graph in line with PageScrapper (the source of truth): calls POST /sync/reconcile.
 
-New documents reach the graph on their own: PageScrapper POSTs them to RAG_INGEST_URL
-(= http://<contextgraph>:8100/ingest/document). This script covers what was scraped before that.
+The comparison lives in ContextGraph (context_graph/sync.py), so this script and the periodic job
+cannot drift apart. The graph reaches the scraper through its own SCRAPER_URL setting.
+Standard library only, so it runs on a host without the project's dependencies.
 
-python scripts/sync_from_scraper.py --scraper http://127.0.0.1:8002 --graph http://127.0.0.1:8100
+python scripts/sync_from_scraper.py --graph http://127.0.0.1:8100 [--dry-run]
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
-from collections import Counter
-
-import httpx
-
-FIELDS = (
-    "url",
-    "source_id",
-    "source_type",
-    "title",
-    "publisher",
-    "published_at",
-    "retrieved_at",
-    "language",
-    "text",
-    "content_hash",
-)
-
-
-def scraper_documents(client: httpx.Client, scraper: str, page_size: int):
-    offset = 0
-    while True:
-        page = client.get(f"{scraper}/documents", params={"limit": page_size, "offset": offset}).raise_for_status()
-        items = page.json()["items"]
-        if not items:
-            return
-        for item in items:
-            yield client.get(f"{scraper}/documents/{item['id']}").raise_for_status().json()
-        offset += len(items)
+import urllib.error
+import urllib.request
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--scraper", default="http://127.0.0.1:8002")
     parser.add_argument("--graph", default="http://127.0.0.1:8100")
-    parser.add_argument("--page-size", type=int, default=200)
+    parser.add_argument("--dry-run", action="store_true", help="report differences only")
+    parser.add_argument("--scraper", help=argparse.SUPPRESS)  # obsolete: the graph uses SCRAPER_URL
     args = parser.parse_args()
 
-    stats: Counter[str] = Counter()
-    with httpx.Client(timeout=120) as client:
-        for doc in scraper_documents(client, args.scraper.rstrip("/"), args.page_size):
-            payload = {k: doc.get(k) for k in FIELDS}
-            # ClaimReview stored by PageScrapper (extra.claim_reviews) -> CheckedClaim in the graph.
-            payload["claims"] = (doc.get("extra") or {}).get("claim_reviews") or []
-            res = client.post(f"{args.graph.rstrip('/')}/ingest/document", json=payload)
-            if res.status_code >= 400:
-                stats["failed"] += 1
-                print(f"FAILED {res.status_code} {doc['url']}: {res.text[:200]}", file=sys.stderr)
-                continue
-            body = res.json()
-            stats["documents"] += 1
-            stats["chunks"] += body["chunks"]
-            stats["embedded"] += body["embedded"]
-            stats["claims"] += body["relations"].get("CHECKS", 0)
-            stats[f"source:{doc['source_id']}"] += 1
-    for key, value in sorted(stats.items()):
-        print(f"{key:32} {value}")
-    return 1 if stats["failed"] else 0
+    url = f"{args.graph.rstrip('/')}/sync/reconcile?dry_run={'true' if args.dry_run else 'false'}"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, method="POST"), timeout=1800) as res:
+            result = json.load(res)
+    except urllib.error.URLError as exc:
+        print(f"ContextGraph unavailable at {args.graph}: {exc}", file=sys.stderr)
+        return 2
+    for key in (
+        "scraper_documents",
+        "graph_documents",
+        "missing",
+        "stale",
+        "ingested",
+        "failed",
+        "orphans",
+        "unembedded_chunks",
+        "unembedded_claims",
+        "consistent",
+        "lag",
+        "error",
+    ):
+        print(f"{key:20} {result.get(key)}")
+    for label in ("failed_urls", "orphan_urls"):
+        for u in result.get(label) or []:
+            print(f"{label[:-5]:8} {u}")
+    return 0 if result.get("lag") == 0 and not result.get("error") else 1
 
 
 if __name__ == "__main__":

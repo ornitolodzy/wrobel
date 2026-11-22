@@ -75,6 +75,9 @@ class DocumentIn(BaseModel):
     corrects: list[str] = Field(default_factory=list)  # urls this document corrects -> CORRECTS
     rating: str | None = None  # fact-checker label exactly as on the page ("Fałsz") -> section "ocena"
     claims: list[ClaimIn] = Field(default_factory=list)  # -> (:Document)-[:CHECKS]->(:CheckedClaim)
+    # PageScrapper `documents.revision`: an older revision than the stored one is ignored, so a
+    # late push cannot overwrite what the reconciler already brought up to date.
+    revision: int | None = Field(default=None, ge=1)
 
 
 PageIn = DocumentIn
@@ -107,7 +110,33 @@ class IngestResult(BaseModel):
     chunks: int
     entities: int
     embedded: int = 0
+    # Nodes of this document still without a current-model vector (0 when embeddings are off).
+    # PageScrapper treats > 0 as "not accepted"; the reconciler embeds them later.
+    unembedded: int = 0
+    skipped: bool = False  # stale revision: nothing written
     relations: dict[str, int] = Field(default_factory=dict)
+
+
+class ReconcileResult(BaseModel):
+    """Graph vs PageScrapper `documents` (the source of truth): what differed, what was repaired."""
+
+    dry_run: bool = False
+    scraper_documents: int = 0
+    graph_documents: int = 0
+    missing: int = 0  # in the scraper, not in the graph
+    stale: int = 0  # graph revision older than the scraper's (or unknown)
+    ingested: int = 0
+    failed: int = 0
+    orphans: int = 0  # in the graph, not in the scraper (reported, never deleted)
+    unembedded_chunks: int = 0  # after the run
+    unembedded_claims: int = 0
+    consistent: bool = True  # no vectors from another embedding model
+    lag: int = 0  # missing + stale - ingested + failed + unembedded; 0 = in sync
+    watermark: datetime | None = None  # newest scraper updated_at seen
+    failed_urls: list[str] = Field(default_factory=list)
+    orphan_urls: list[str] = Field(default_factory=list)
+    error: str | None = None
+    finished_at: datetime | None = None
 
 
 class EmbeddingBackfillResult(BaseModel):

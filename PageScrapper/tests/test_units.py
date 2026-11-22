@@ -1,6 +1,7 @@
 import asyncio
 import gzip
-from datetime import date
+import json
+from datetime import date, datetime
 from urllib.parse import urlsplit
 
 import httpx
@@ -245,3 +246,114 @@ def test_upsert_resends_when_only_metadata_changes(tmp_path) -> None:
         return outcomes
 
     assert asyncio.run(scenario()) == ["new", "unchanged", "updated", "unchanged"]
+
+
+def test_revision_grows_on_every_stored_change(tmp_path) -> None:
+    async def scenario() -> list[int]:
+        db = Database(f"sqlite+aiosqlite:///{tmp_path / 'r.db'}")
+        await db.init()
+        base = dict(url="https://demagog.org.pl/r/", source_id="d", source_type="fact_check",
+                    title="T", publisher="P", published_at=date(2026, 11, 1), text="tekst " * 50)
+        revisions = []
+        for doc in (
+            DocumentIn(**base),                                   # new -> 1
+            DocumentIn(**base),                                   # unchanged -> 1
+            DocumentIn(**base, extra={"claim_reviews": [1]}),     # metadata only -> 2
+            DocumentIn(**{**base, "text": "inny " * 50}, extra={"claim_reviews": [1]}),  # text -> 3
+        ):
+            _, stored = await db.upsert(doc)
+            revisions.append(stored.revision)
+        total, rows = await db.revisions(10, 0)
+        await db.close()
+        assert total == 1 and rows[0][1] == base["url"] and rows[0][2] == 3 and rows[0][3] is not None
+        return revisions
+
+    assert asyncio.run(scenario()) == [1, 1, 2, 3]
+
+
+def test_old_documents_table_is_migrated(tmp_path) -> None:
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.execute(
+        "CREATE TABLE documents (id INTEGER PRIMARY KEY, url VARCHAR(2048) UNIQUE, source_id VARCHAR(64), "
+        "source_type VARCHAR(32), title TEXT, publisher VARCHAR(256), published_at DATE, "
+        "retrieved_at DATETIME, language VARCHAR(16), text TEXT, content_hash VARCHAR(64), extra JSON)"
+    )
+    con.execute("INSERT INTO documents (url, source_id, source_type, retrieved_at, text, content_hash) "
+                "VALUES ('https://x.example/a', 's', 'official', '2026-11-01 10:00:00', 't', 'h')")
+    con.commit()
+    con.close()
+
+    async def scenario():
+        db = Database(f"sqlite+aiosqlite:///{path}")
+        await db.init()
+        await db.init()  # idempotent on every start
+        result = await db.revisions(10, 0)
+        await db.close()
+        return result
+
+    total, rows = asyncio.run(scenario())
+    assert total == 1 and rows[0][2] == 1 and rows[0][3] is not None  # backfilled from retrieved_at
+
+
+def test_ingest_targets() -> None:
+    s = Settings(rag_ingest_url="http://pipeline/ingest", rag_ingest_urls=" http://graph/ingest/document, ,http://pipeline/ingest")
+    assert s.ingest_targets() == ["http://graph/ingest/document", "http://pipeline/ingest"]
+    assert Settings().ingest_targets() == []
+
+
+def test_rag_client_pushes_to_every_receiver() -> None:
+    from types import SimpleNamespace
+
+    from app.ingest import RagClient
+
+    seen: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append((request.url.host, body))
+        if request.url.host == "graph":
+            return httpx.Response(200, json={"id": "d", "chunks": 3, "embedded": 0, "unembedded": UNEMBEDDED[0]})
+        return httpx.Response(200, json={"changed": 1, "chunks": 2})
+
+    UNEMBEDDED = [0]  # unchanged re-push: nothing newly embedded, nothing missing -> accepted
+    doc = SimpleNamespace(url="https://x.example/a", source_id="s", source_type="official", title="T", publisher="P",
+                          published_at=None, retrieved_at=datetime(2026, 11, 1), language="pl", text="t",
+                          content_hash="h", extra={"claim_reviews": [{"text": "A"}]}, revision=4)
+
+    async def send() -> bool:
+        client = RagClient(["http://graph/ingest/document", "http://pipeline/ingest"], transport=httpx.MockTransport(handler))
+        try:
+            return await client.send(doc)
+        finally:
+            await client.close()
+
+    assert asyncio.run(send()) is True
+    assert {h for h, _ in seen} == {"graph", "pipeline"}
+    assert all(b["revision"] == 4 and b["claims"] == [{"text": "A"}] for _, b in seen)
+    UNEMBEDDED[0] = 3  # stored without vectors (tunnel down): not accepted, reconcile repairs it
+    assert asyncio.run(send()) is False
+
+
+def test_rag_client_one_failing_receiver_fails_the_push() -> None:
+    from types import SimpleNamespace
+
+    from app.ingest import RagClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503) if request.url.host == "graph" else httpx.Response(200, json={})
+
+    doc = SimpleNamespace(url="u", source_id="s", source_type="official", title=None, publisher=None,
+                          published_at=None, retrieved_at=datetime(2026, 11, 1), language=None, text="t",
+                          content_hash="h", extra=None, revision=1)
+
+    async def send() -> bool:
+        client = RagClient(["http://graph/x", "http://pipeline/y"], transport=httpx.MockTransport(handler))
+        try:
+            return await client.send(doc)
+        finally:
+            await client.close()
+
+    assert asyncio.run(send()) is False

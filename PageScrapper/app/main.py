@@ -35,7 +35,8 @@ def create_app(
         await db.init()
         fetcher = Fetcher(settings, transport=transport, resolve=resolve)
         active_renderer = renderer or PlaywrightRenderer(settings, resolve)
-        rag = RagClient(settings.rag_ingest_url, transport=transport) if settings.rag_ingest_url else None
+        targets = settings.ingest_targets()
+        rag = RagClient(targets, transport=transport) if targets else None
         app.state.db = db
         app.state.fetcher = fetcher
         app.state.renderer = active_renderer

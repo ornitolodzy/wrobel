@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     events_api_key: str = ""
     events_timeout_s: float = 60.0
 
+    # Reconciliation with the source of truth (PageScrapper `documents`): GET /documents/revisions,
+    # re-ingest what is missing or older, embed what has no vector. Empty url = off.
+    scraper_url: str = ""
+    reconcile_interval_minutes: float = 0  # 0 = only on demand (POST /sync/reconcile)
+    reconcile_timeout_s: float = 60.0
+
     source_type_map: dict[str, str] = DEFAULT_SOURCE_TYPE_MAP
 
     def contract_type(self, raw: str | None) -> str:

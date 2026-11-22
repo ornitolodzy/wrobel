@@ -55,6 +55,16 @@ def test_text_corpus_version_from_graph_is_kept():
     assert [e.chunk_id for e in ev] == ["a"] and ev[0].retrieval.corpus_version == "current"
 
 
+def test_graph_being_re_embedded_returns_nothing():
+    # Same model name, but ContextGraph reports vectors from two models (switch in progress).
+    r = Canned(dense=[row("a", 0.9)], sparse=[], version={"id": "current", "embedding_model": "mock", "consistent": False})
+    usage.start()
+    assert r.search(Q, {}) == []
+    assert any(c.get("event") == "embedding_model_mixed" for c in usage.drain())
+    ok = Canned(dense=[row("a", 0.9)], sparse=[], version={"id": "current", "embedding_model": "mock", "consistent": True})
+    assert [e.chunk_id for e in ok.search(Q, {})] == ["a"]
+
+
 def test_embedding_model_mismatch_returns_nothing():
     r = Canned(dense=[row("a", 0.9)], sparse=[], version={"id": 1, "embedding_model": "bge-m3"})
     usage.start()

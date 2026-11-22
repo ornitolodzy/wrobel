@@ -204,3 +204,14 @@ def test_rag_forwarding_carries_claim_reviews(make_client) -> None:
         assert claim["text"] == "Niemieckie radiowozy jadą do Warszawy."
         assert claim["rating"] == "fałsz"
         assert by_url["https://demagog.org.pl/fake_news/fake-2/"]["claims"] == []  # page failed: RSS text only
+
+
+def test_document_revisions_endpoint(make_client) -> None:
+    with make_client() as c:
+        wait_for_run(c, c.post("/scrap/all", json={"source_ids": ["rcb-komunikaty"]}).json()["run_id"])
+        body = c.get("/documents/revisions").json()
+        assert body["total"] == 2 and len(body["items"]) == 2
+        assert all(i["revision"] == 1 and i["updated_at"] for i in body["items"])
+        one = c.get(f"/documents/{body['items'][0]['id']}").json()
+        assert one["revision"] == 1 and one["url"] == body["items"][0]["url"]
+        assert c.get("/documents/revisions", params={"limit": 1, "offset": 1}).json()["items"][0]["id"] == body["items"][1]["id"]

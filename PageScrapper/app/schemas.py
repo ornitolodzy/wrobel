@@ -67,8 +67,24 @@ class DocumentOut(BaseModel):
     language: str | None
     content_hash: str
     extra: dict[str, Any] | None
+    revision: int = 1
+    updated_at: datetime | None = None
     text: str | None = None
     preview: str | None = None
+
+
+class DocumentRevision(BaseModel):
+    id: int
+    url: str
+    revision: int
+    updated_at: datetime | None
+
+
+class RevisionList(BaseModel):
+    """Every document's current revision: receivers (ContextGraph) diff it with what they indexed."""
+
+    total: int
+    items: list[DocumentRevision]
 
 
 class CorpusStats(BaseModel):

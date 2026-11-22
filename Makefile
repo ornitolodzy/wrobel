@@ -4,7 +4,7 @@ COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compos
 DC      := $(COMPOSE)
 S       ?=
 
-.PHONY: help up start down clean ps logs build config dev-backend dev-frontend seed-dump graph-up graph-seed-dump graph-sync \
+.PHONY: help up start down clean ps logs build config dev-backend dev-frontend seed-dump seed-dump-all graph-up graph-seed-dump graph-sync \
         test test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord test-frontend
 
 help: ## lista celów
@@ -57,8 +57,13 @@ graph-seed-dump: ## zrzut grafu Neo4j do db/neo4j-seed/neo4j.dump (zatrzymuje ne
 	$(DC) --profile graph up -d neo4j context-graph
 	@ls -lh db/neo4j-seed/neo4j.dump
 
-graph-sync: ## dokumenty z PageScrappera :8002 do grafu :8100
-	cd ContextGraph && python scripts/sync_from_scraper.py --scraper http://127.0.0.1:8002 --graph http://127.0.0.1:8100
+graph-sync: ## rekoncyliacja grafu :8100 z PageScrapperem (brakujące / nieaktualne dokumenty, brakujące wektory)
+	python3 ContextGraph/scripts/sync_from_scraper.py --graph http://127.0.0.1:8100
+
+seed-dump-all: ## spójne seedy: najpierw graf zgodny ze scraperem (lag = 0), potem zrzut Postgresa i Neo4j
+	python3 ContextGraph/scripts/sync_from_scraper.py --graph http://127.0.0.1:8100
+	$(MAKE) seed-dump
+	$(MAKE) graph-seed-dump
 
 test: test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord ## testy wszystkich serwisów Pythona
 

@@ -43,8 +43,8 @@ PIPELINE_QUERIES = {
                s.publisher AS publisher, s.type AS source_type
         ORDER BY p.url LIMIT $limit
     """,
-    "corpus_version": "MATCH (v:CorpusVersion) RETURN v.id AS id, v.embedding_model AS embedding_model "
-    "ORDER BY v.id DESC LIMIT 1",
+    "corpus_version": "MATCH (v:CorpusVersion) RETURN v.id AS id, v.embedding_model AS embedding_model, "
+    "coalesce(v.consistent, true) AS consistent ORDER BY v.id DESC LIMIT 1",
 }
 CHUNK_COLUMNS = {
     "chunk_id",
@@ -222,7 +222,7 @@ def test_embeddings_and_pipeline_dense_query(client):
     client.app.state.embedder = OllamaEmbedder(Settings(), transport=httpx.MockTransport(ollama))
     res = client.post("/embeddings/backfill").json()
     assert res["embedded"] > 0 and res["remaining"] == 0 and res["model"] == "bge-m3"
-    assert run(client, "corpus_version") == [{"id": "current", "embedding_model": "bge-m3"}]
+    assert run(client, "corpus_version") == [{"id": "current", "embedding_model": "bge-m3", "consistent": True}]
 
     target = graph(client).read(
         "MATCH (c:Chunk)-[:PART_OF]->(:Document {url: $url}) WHERE c.section = 'tresc' RETURN c.text AS t LIMIT 1",

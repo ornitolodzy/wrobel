@@ -32,6 +32,7 @@ logger = logging.getLogger("context_graph.ingest")
 CHUNK_RELATIONS = {"SUPPORTS", "CONTRADICTS"}
 DOCUMENT_RELATIONS = {"CORRECTS", "CITES", "REPRINTS"}
 CORPUS_VERSION_ID = "current"
+STALE = "_stale"  # marker returned by the write transaction when the revision is outdated
 
 
 class NotFoundError(LookupError):
@@ -197,23 +198,64 @@ def _write_chunks(
 EMBEDDED_LABELS = ("Chunk", "CheckedClaim")  # both embedded by the same model as the queries
 
 
-def _remaining(graph: Graph, label: str) -> int:
-    return graph.read(f"MATCH (c:{label}) WHERE c.embedding IS NULL RETURN count(c) AS n")[0]["n"]
+# Pending = no vector, or a vector from another model (after a model switch). Re-embedding the
+# latter keeps one vector space: mixing models makes cosine scores meaningless.
+_PENDING = "(c.embedding IS NULL OR coalesce(c.embedding_model, '') <> coalesce($model, ''))"
+
+
+def _remaining(graph: Graph, label: str, model: str | None = None, ids: list[str] | None = None) -> int:
+    pending = _PENDING if model else "c.embedding IS NULL"
+    return graph.read(
+        f"MATCH (c:{label}) WHERE {pending} AND ($ids IS NULL OR c.id IN $ids) RETURN count(c) AS n",
+        model=model,
+        ids=ids,
+    )[0]["n"]
+
+
+def mixed_vectors(graph: Graph, model: str) -> int:
+    """Nodes whose vector comes from another model than `model` (read-only)."""
+    return graph.read(
+        """
+        MATCH (c) WHERE (c:Chunk OR c:CheckedClaim) AND c.embedding IS NOT NULL
+          AND coalesce(c.embedding_model, '') <> $model
+        RETURN count(c) AS n
+        """,
+        model=model,
+    )[0]["n"]
+
+
+def remaining_embeddings(graph: Graph, model: str | None) -> tuple[int, int]:
+    """(chunks, checked claims) still without a vector from `model`."""
+    return _remaining(graph, "Chunk", model), _remaining(graph, "CheckedClaim", model)
+
+
+def update_corpus_consistency(graph: Graph, model: str) -> bool:
+    """CorpusVersion.consistent = no node carries a vector from another model. The pipeline
+    refuses a graph that is not consistent (half re-embedded), like a model mismatch."""
+    mixed = mixed_vectors(graph, model)
+    graph.write(
+        "MATCH (v:CorpusVersion {id: $id}) WHERE v.embedding_model = $model SET v.consistent = $ok",
+        id=CORPUS_VERSION_ID,
+        model=model,
+        ok=mixed == 0,
+    )
+    return mixed == 0
 
 
 def _embed_label(
     graph: Graph, embedder: Embedder, label: str, ids: list[str] | None, limit: int
 ) -> tuple[int, str | None]:
-    """Embed `text` of nodes without a vector (`ids` None = any). -> (embedded, error)."""
+    """Embed `text` of pending nodes (`ids` None = any). -> (embedded, error)."""
     if limit <= 0:
         return 0, None
     rows = graph.read(
         f"""
-        MATCH (c:{label}) WHERE c.embedding IS NULL AND ($ids IS NULL OR c.id IN $ids)
+        MATCH (c:{label}) WHERE {_PENDING} AND ($ids IS NULL OR c.id IN $ids)
         RETURN c.id AS id, c.text AS text ORDER BY c.id LIMIT $limit
         """,
         ids=ids,
         limit=limit,
+        model=embedder.model,
     )
     if not rows:
         return 0, None
@@ -263,11 +305,12 @@ def embed_pending(
         )
     embedded, error = _embed_label(graph, embedder, "Chunk", ids, limit)
     claims_embedded, claims_error = _embed_label(graph, embedder, "CheckedClaim", claim_ids, limit - embedded)
+    update_corpus_consistency(graph, embedder.model)
     return EmbeddingBackfillResult(
         embedded=embedded,
-        remaining=_remaining(graph, "Chunk"),
+        remaining=_remaining(graph, "Chunk", embedder.model),
         claims_embedded=claims_embedded,
-        claims_remaining=_remaining(graph, "CheckedClaim"),
+        claims_remaining=_remaining(graph, "CheckedClaim", embedder.model),
         model=embedder.model,
         error=error or claims_error,
     )
@@ -307,6 +350,22 @@ def upsert_document(
     cites, corrects = targets(doc.links), targets(doc.corrects)
 
     def work(tx: ManagedTransaction) -> dict[str, int]:
+        if doc.revision is not None:
+            # Checked inside the write transaction: a late push of an older revision cannot
+            # overwrite what the reconciler already stored.
+            # SET/REMOVE takes the node's write lock first, so two concurrent writes of the same
+            # document are serialized and the second one sees the first one's revision.
+            current = tx.run(
+                """
+                MERGE (d:Document {id: $id})
+                  ON CREATE SET d.created_at = datetime(), d.stub = true
+                SET d._lock = true REMOVE d._lock
+                RETURN d.scraper_revision AS r
+                """,
+                id=did,
+            ).single()
+            if current is not None and current["r"] is not None and current["r"] > doc.revision:
+                return {STALE: 1}
         tx.run(
             """
             MERGE (s:Source {id: $sid})
@@ -321,7 +380,8 @@ def upsert_document(
                 d.fetched_at = coalesce($fetched_at, datetime()), d.text_hash = $text_hash,
                 d.scraper_hash = $scraper_hash, d.language = $language, d.rating = $rating,
                 d.source_type = $type, d.catalog_type = $catalog_type, d.catalog_id = $catalog_id,
-                d.license = $license, d.stub = false, d.updated_at = datetime()
+                d.license = $license, d.stub = false, d.updated_at = datetime(),
+                d.scraper_revision = coalesce($revision, d.scraper_revision)
             WITH s, d
             OPTIONAL MATCH (d)-[old:PUBLISHED_BY]->(other:Source) WHERE other <> s
             DELETE old
@@ -344,6 +404,7 @@ def upsert_document(
             scraper_hash=doc.content_hash,
             language=doc.language,
             rating=rating,
+            revision=doc.revision,
         )
         _write_chunks(tx, "Document", did, chunks, next_pairs, mentions, pairs, method="regex")
 
@@ -404,17 +465,25 @@ def upsert_document(
         return counts
 
     counts = graph.transaction(work)
-    embedded = 0
+    if counts.get(STALE):
+        logger.info("Skipped %s: revision %s older than the stored one", url, doc.revision)
+        return IngestResult(id=did, chunks=0, entities=0, skipped=True)
+    embedded = unembedded = 0
     if embedder is not None and embedder.model is not None:
+        chunk_ids = [c["id"] for c in chunks]
         claim_ids = [r["id"] for r in claim_rows(did, doc.claims)[0]]
         embedded = embed_pending(
-            graph, embedder, ids=[c["id"] for c in chunks], limit=len(chunks) + len(claim_ids), claim_ids=claim_ids
+            graph, embedder, ids=chunk_ids, limit=len(chunks) + len(claim_ids), claim_ids=claim_ids
         ).embedded
+        unembedded = _remaining(graph, "Chunk", embedder.model, chunk_ids) + _remaining(
+            graph, "CheckedClaim", embedder.model, claim_ids
+        )
     return IngestResult(
         id=did,
         chunks=len(chunks),
         entities=len({m["key"] for m in mentions}),
         embedded=embedded,
+        unembedded=unembedded,
         relations=counts,
     )
 

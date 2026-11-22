@@ -36,6 +36,28 @@ class Document(Base):
     text: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64))
     extra: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # +1 on every stored change (text or metadata). Receivers keep the revision they indexed and
+    # compare it with GET /documents/revisions, so a lost push is detected and repaired.
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+# Columns added after the first release: create_all() never alters an existing table.
+_MIGRATIONS = [
+    ("revision", "ALTER TABLE documents ADD COLUMN revision INTEGER NOT NULL DEFAULT 1"),
+    ("updated_at", "ALTER TABLE documents ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE"),
+]
+
+
+def _migrate(conn) -> None:
+    from sqlalchemy import inspect, text
+
+    existing = {c["name"] for c in inspect(conn).get_columns("documents")}
+    for column, ddl in _MIGRATIONS:
+        if column not in existing:
+            conn.execute(text(ddl))
+    conn.execute(text("UPDATE documents SET updated_at = retrieved_at WHERE updated_at IS NULL"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_updated_at ON documents (updated_at)"))
 
 
 class ScrapeRun(Base):
@@ -78,6 +100,7 @@ class Database:
             try:
                 async with self.engine.begin() as conn:
                     await conn.run_sync(Base.metadata.create_all)
+                    await conn.run_sync(_migrate)
                 return
             except (OSError, OperationalError) as exc:
                 if attempt == attempts:
@@ -97,6 +120,8 @@ class Database:
                 if (existing.extra or None) == (doc.extra or None):
                     return "unchanged", existing
                 existing.extra = doc.extra or None
+                existing.revision = (existing.revision or 1) + 1
+                existing.updated_at = utcnow()
                 await s.commit()
                 return "updated", existing
             target = existing or Document(url=doc.url)
@@ -110,6 +135,8 @@ class Database:
             target.text = doc.text
             target.content_hash = digest
             target.extra = doc.extra or None
+            target.revision = 1 if existing is None else (existing.revision or 1) + 1
+            target.updated_at = utcnow()
             if existing is None:
                 s.add(target)
             await s.commit()
@@ -121,6 +148,18 @@ class Database:
         async with self.sessionmaker() as session:
             rows = await session.execute(select(Document.url).where(Document.url.in_(urls)))
             return set(rows.scalars())
+
+    async def revisions(self, limit: int, offset: int) -> tuple[int, list[tuple[int, str, int, datetime | None]]]:
+        """(id, url, revision, updated_at) of every document, stable order for paging."""
+        async with self.sessionmaker() as s:
+            total = (await s.execute(select(func.count(Document.id)))).scalar_one()
+            rows = await s.execute(
+                select(Document.id, Document.url, Document.revision, Document.updated_at)
+                .order_by(Document.id)
+                .limit(limit)
+                .offset(offset)
+            )
+            return total, [tuple(r) for r in rows]
 
     async def known_urls(self, source_id: str) -> set[str]:
         async with self.sessionmaker() as s:

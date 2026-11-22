@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -29,10 +31,15 @@ from context_graph.models import (
     EmbeddingBackfillResult,
     ImageIn,
     IngestResult,
+    ReconcileResult,
     RelationIn,
 )
 from context_graph.schema import ensure_schema
 from context_graph.stats import graph_stats
+from context_graph.sync import reconcile
+
+logger = logging.getLogger("context_graph.api")
+RECONCILE_START_DELAY_S = 15
 
 
 @asynccontextmanager
@@ -45,10 +52,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.extractor = RegexExtractor()
     app.state.embedder = make_embedder(settings)
     app.state.event_llm = make_event_llm(settings)
+    app.state.scraper_transport = None  # tests inject httpx.MockTransport
+    app.state.last_reconcile = None
+    loop = None
+    if settings.scraper_url and settings.reconcile_interval_minutes > 0:
+        loop = asyncio.create_task(_reconcile_loop(app, settings))
     try:
         yield
     finally:
+        if loop is not None:
+            loop.cancel()
         graph.close()
+
+
+async def _reconcile_loop(app: FastAPI, settings: Settings) -> None:
+    """Converge with PageScrapper on start (after it had time to boot) and then periodically."""
+    await asyncio.sleep(RECONCILE_START_DELAY_S)
+    while True:
+        try:
+            app.state.last_reconcile = await asyncio.to_thread(_run_reconcile, app, settings, False)
+        except Exception:
+            logger.exception("Periodic reconcile failed")
+        await asyncio.sleep(settings.reconcile_interval_minutes * 60)
+
+
+def _run_reconcile(app: FastAPI, settings: Settings, dry_run: bool) -> ReconcileResult:
+    state = app.state
+    return reconcile(
+        state.graph, state.extractor, settings, state.embedder, dry_run=dry_run, transport=state.scraper_transport
+    )
 
 
 app = FastAPI(title="ContextGraph", version=__version__, lifespan=lifespan)
@@ -119,6 +151,29 @@ def embeddings_backfill(
     embedder: Embedder = Depends(get_embedder),
 ) -> EmbeddingBackfillResult:
     return embed_pending(graph, embedder, limit=limit)
+
+
+@app.post(
+    "/sync/reconcile",
+    response_model=ReconcileResult,
+    summary="Porównuje graf z PageScrapperem (źródło prawdy) i dosyła brakujące / nieaktualne dokumenty",
+)
+def sync_reconcile(
+    request: Request,
+    dry_run: bool = Query(default=False, description="tylko raport różnic, bez zapisu"),
+    settings: Settings = Depends(get_settings),
+) -> ReconcileResult:
+    result = _run_reconcile(request.app, settings, dry_run)
+    if not dry_run:
+        request.app.state.last_reconcile = result
+    return result
+
+
+@app.get(
+    "/sync/status", response_model=ReconcileResult | None, summary="Wynik ostatniej rekoncyliacji (lag = 0: zgodne)"
+)
+def sync_status(request: Request) -> ReconcileResult | None:
+    return request.app.state.last_reconcile
 
 
 def get_event_llm(request: Request) -> EventLLM:
