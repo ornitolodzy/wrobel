@@ -24,6 +24,7 @@ from app.fetch import FetchError, Fetcher
 from app.render import Renderer
 from app.schemas import LiveSearchDocument, LiveSearchOut, LiveSearchSource
 from app.scrape import scrape_url
+from app.sources.google_factcheck import review_to_document
 
 logger = logging.getLogger("scraper.live_search")
 
@@ -46,6 +47,7 @@ _STOPWORDS = frozenset(
     taki takie tam te tego tej temu ten też to tu tutaj tych tylko tym u w we według wiem więc
     wszystko wszyscy z za ze że żeby ostatnio niedawno teraz obecnie podobno rzekomo czyżby
     sprawdź sprawdz informacja informacje wiadomość news fake twierdzenie twierdzą mówią
+    dlaczego czemu skąd dokąd jakim jaką którym którą ilu około
     słyszałem słyszałam napisali piszą wydało wydał wydała the and of to in is that
     sprawie sprawy kwestii temat temacie dotyczący dotyczące dotyczy jakiś jakieś wszystkich
     przeciw przeciwko wobec między około poza obok wśród dzięki mimo zamiast wokół spośród
@@ -101,9 +103,11 @@ def extract_terms(query: str, limit: int = MAX_TERMS) -> list[_Term]:
         score = 3 + min(len(word), 12) / 4
         acronym = raw.isupper() and len(raw) >= 2
         common = word.startswith(_COMMON_PREFIXES)
-        proper = not common and (acronym or (raw[:1].isupper() and pos > 0))
+        # Wielka litera = nazwa własna, także na początku zdania („Wrocław wydaje…”): słowa pytające
+        # i spójniki odpadają wcześniej jako stop-słowa, a ogólne słowa (Polska, Ministerstwo) jako częste.
+        proper = not common and (acronym or raw[:1].isupper())
         if proper:
-            score += 4  # nazwa własna w środku zdania
+            score += 4 if pos > 0 else 2
         if acronym:
             score += 3  # skrót: MSZ, RCB, NATO
         if any(ch.isdigit() for ch in word):
@@ -142,6 +146,7 @@ class _Candidate:
     title: str
     source: SourceConfig
     score: int
+    record: DocumentIn | None = None  # gotowy dokument (API weryfikatorów), bez pobierania strony
 
 
 @dataclass
@@ -228,7 +233,9 @@ class LiveSearcher:
         assert cfg is not None
         stems = [t.stem for t in terms]
 
-        if cfg.kind == "wp_rest":
+        if cfg.kind == "factcheck_api":
+            await self._factcheck_api(run, terms, stems)
+        elif cfg.kind == "wp_rest":
             # WordPress łączy słowa przez AND: zaczynamy od 3 najważniejszych, potem luzujemy do 2 i 1
             by_weight = sorted(terms, key=lambda t: -t.score)
             for n in (3, 2, 1):
@@ -312,6 +319,33 @@ class LiveSearcher:
         return picked
 
     async def _fetch_and_store(self, cand: _Candidate, query: str, terms: list[_Term]) -> LiveSearchDocument | None:
+        source = cand.source
+        if cand.record is not None:
+            # gotowy rekord z API weryfikatorów (ClaimReview): twierdzenie + ocena, bez pobierania strony
+            doc = cand.record
+            if not is_relevant(f"{doc.extra.get('claim') or ''}\n{doc.title or ''}", doc.text, terms):
+                logger.info("Live search: %s not relevant enough", cand.url)
+                return None
+            doc.extra = {**doc.extra, "live_search": True}
+        else:
+            doc = await self._fetch_page(cand, query, terms)
+            if doc is None:
+                return None
+        outcome, stored = await self.db.upsert(doc)
+        ingested = await self.rag.send(stored) if self.rag is not None else False
+        return LiveSearchDocument(
+            url=stored.url,
+            title=stored.title,
+            publisher=stored.publisher,
+            published_at=stored.published_at,
+            source_id=source.id,
+            source_name=source.name,
+            source_type=source.source_type,
+            new=outcome == "new",
+            ingested=ingested,
+        )
+
+    async def _fetch_page(self, cand: _Candidate, query: str, terms: list[_Term]) -> DocumentIn | None:
         try:
             if not await self.fetcher.allowed_by_robots(cand.url):
                 return None
@@ -327,29 +361,53 @@ class LiveSearcher:
         if len(page.text) < MIN_DOCUMENT_CHARS or not is_relevant(title, page.text, terms):
             logger.info("Live search: %s not relevant enough", cand.url)
             return None
-
         source = cand.source
-        doc = DocumentIn(
+        return DocumentIn(
             url=page.final_url,
             source_id=source.id,
             source_type=source.source_type,
-            title=page.title or cand.title,
+            title=title,
             publisher=page.publisher or source.publisher,
             published_at=page.published_at,
             text=page.text,
             language=page.language or "pl",
             extra={"live_search": True, "query": query[:500]},
         )
-        outcome, stored = await self.db.upsert(doc)
-        ingested = await self.rag.send(stored) if self.rag is not None else False
-        return LiveSearchDocument(
-            url=stored.url,
-            title=stored.title,
-            publisher=stored.publisher,
-            published_at=stored.published_at,
-            source_id=source.id,
-            source_name=source.name,
-            source_type=source.source_type,
-            new=outcome == "new",
-            ingested=ingested,
-        )
+
+    async def _factcheck_api(self, run: _SourceRun, terms: list[_Term], stems: list[str]) -> None:
+        """Google Fact Check Tools API (claims:search): oceny weryfikatorów (ClaimReview), m.in. Demagoga,
+        także gdy ich strony blokują automatyczne pobieranie. Zapytanie z najważniejszych słów, luzowane."""
+        cfg = run.source.live_search
+        key = self.settings.google_factcheck_api_key
+        if not key:
+            run.status, run.message = "skipped", "Brak klucza GOOGLE_FACTCHECK_API_KEY."
+            return
+        language = run.source.options.get("language", "pl")
+        by_weight = sorted(terms, key=lambda t: -t.score)
+        seen: set[str] = set()
+        for n in (4, 3, 2):
+            if n > len(by_weight) and n != 2:
+                continue
+            words = sorted(by_weight[:n], key=lambda t: t.position)
+            query = " ".join(t.word for t in words)
+            try:
+                data = await self.fetcher.get_json(
+                    cfg.url,
+                    {"query": query, "languageCode": language, "pageSize": str(cfg.max_results * 2), "key": key},
+                )
+            except FetchError as exc:
+                # nie „brak wyników”: indeks był niedostępny (np. zły klucz, limit, awaria)
+                raise FetchError("api_error", f"Błąd dostępu do API weryfikatorów: {exc.message}") from None
+            for claim in data.get("claims", []):
+                for review in claim.get("claimReview", []):
+                    doc = review_to_document(claim, review, query, run.source.id, run.source.source_type)
+                    if doc is None or doc.url in seen:
+                        continue
+                    seen.add(doc.url)
+                    title = f"{claim.get('text') or ''} {review.get('title') or ''}"
+                    run.candidates.append(_Candidate(
+                        url=doc.url, title=title.strip(), source=run.source,
+                        score=_hits(title, stems), record=doc,
+                    ))
+            if run.candidates:
+                return

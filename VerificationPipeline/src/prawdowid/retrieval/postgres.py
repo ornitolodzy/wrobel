@@ -78,6 +78,29 @@ def tsquery_for(q: Query, max_terms: int = 12) -> str:
     return " | ".join(terms[:max_terms])
 
 
+# Fact-check records from structured APIs (PageScrapper google_factcheck: ClaimReview) carry the
+# fact-checker's own rating on a line of its own. In the graph backend it is a separate node.
+_RATING_LINE = re.compile(r"^\s*Ocena weryfikatora:\s*(\S.{0,80}?)\s*$", re.MULTILINE)
+
+
+def rating_evidence(evidence: list[Evidence]) -> list[Evidence]:
+    """The rating label of a retrieved fact-check as its own "ocena" chunk (like Neo4j's rating
+    node), so the stance step can quote the label and the policy can treat it as a ruling."""
+    out, seen = [], set()
+    for e in evidence:
+        if e.source_type != "factcheck" or e.section != "tresc" or e.doc_id in seen:
+            continue
+        m = _RATING_LINE.search(e.text)
+        if not m:
+            continue
+        seen.add(e.doc_id)
+        out.append(e.model_copy(update={
+            "chunk_id": f"{e.doc_id}:rating", "text": m.group(1), "section": "ocena",
+            "retrieval": RetrievalTrace(found_by=["rating"]),
+        }))
+    return out
+
+
 class PgRetriever:
     def __init__(self, params: dict):
         self.params = params
@@ -107,6 +130,7 @@ class PgRetriever:
             evidence = [self._row(r, rrf_k, corpus_version) for r in rows]
             if params.get("neighbours", 0):
                 self._add_neighbours(conn, rows, evidence, params)
+            evidence += rating_evidence(evidence)
 
         usage.record(role="retrieval", backend="postgres", claim_id=query.claim_id,
                      corpus_version=corpus_version, embedding_model=self.embedder.model,

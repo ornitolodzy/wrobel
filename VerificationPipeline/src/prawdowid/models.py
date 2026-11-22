@@ -12,7 +12,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 ClaimType = Literal["factual", "opinion", "prediction", "unclear"]
-StanceLabel = Literal["supports", "refutes", "missing_context", "irrelevant"]
+# announced = the source only announces / plans / schedules the event, it does not show it happened
+StanceLabel = Literal["supports", "refutes", "missing_context", "announced", "irrelevant"]
 VerdictLabel = Literal[
     "potwierdzone", "falszywe", "wprowadzajace_w_blad", "brak_dowodow", "nie_podlega_weryfikacji"
 ]
@@ -49,6 +50,8 @@ class Claim(BaseModel):
     # The user asked a question ("Czy PAP usunęła...?"). `text` keeps the question's
     # proposition as asked, negation included, so "Tak/Nie" answers the question directly.
     is_question: bool = False
+    # What kind of authoritative document would settle the claim (said when nothing is found).
+    needed_source: str | None = None
 
 
 class Query(BaseModel):
@@ -106,9 +109,10 @@ class Stance(BaseModel):
 
 
 # podlinkowane = primary material a fact-checker links to; shown for provenance, not judged
-SourceRole = Literal["potwierdza", "zaprzecza", "brak_kontekstu", "podlinkowane"]
+SourceRole = Literal["potwierdza", "zaprzecza", "brak_kontekstu", "zapowiedz", "podlinkowane"]
 ROLE_OF_STANCE: dict[str, SourceRole] = {
     "supports": "potwierdza", "refutes": "zaprzecza", "missing_context": "brak_kontekstu",
+    "announced": "zapowiedz",
 }
 
 
@@ -149,6 +153,8 @@ class Verdict(BaseModel):
     evidence: list[Stance] = Field(default_factory=list)
     sources: list[SourceRef] = Field(default_factory=list)  # numbered, rendered in the answer
     warnings: list[str] = Field(default_factory=list)
+    # "Why" sentences of the answer (LLM, checked against the sources, or the template), set by compose.
+    explanation: str | None = None
 
 
 class CheckResult(BaseModel):

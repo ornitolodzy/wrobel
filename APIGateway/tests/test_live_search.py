@@ -134,7 +134,10 @@ def test_live_search_without_new_documents_keeps_result_and_skips_llm(make_clien
         assert body["check_id"] == first["check_id"]
         assert body["claims"] == first["claims"]
         assert body["live_search"]["reverified"] is False
-        assert body["live_search"]["message"] == "Przeszukano na żywo: Gov.pl - brak nowych materiałów na ten temat."
+        message = body["live_search"]["message"]
+        assert message.startswith("Przeszukano na żywo: Gov.pl - brak nowych materiałów na ten temat.")
+        # Demagog zwrócił błąd: komunikat mówi, czego nie dało się sprawdzić (scenariusz J)
+        assert "Nie mogę teraz sprawdzić: Demagog (błąd dostępu)" in message
 
 
 def test_live_search_only_for_insufficient_evidence(make_client) -> None:

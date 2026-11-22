@@ -29,6 +29,7 @@ class ClaimOut(BaseModel):
     entities: list[str] = Field(default_factory=list)
     time_ref: str | None = None
     is_question: bool = False
+    needed_source: str | None = None
 
 
 class ClaimsOut(BaseModel):
@@ -108,7 +109,7 @@ def extract_claims_llm(text: str, llm_params: dict) -> list[Claim]:
     max_claims = llm_params.get("max_claims", 3)
     return [
         Claim(id=f"c{i}", text=c.text, type=c.type, entities=c.entities, time_ref=c.time_ref,
-              is_question=c.is_question)
+              is_question=c.is_question, needed_source=(c.needed_source or "").strip() or None)
         for i, c in enumerate(out.claims[:max_claims], start=1)
         if c.text.strip()
     ]

@@ -113,7 +113,8 @@ def _claim(v: Verdict, claim_text: str, max_sources: int | None) -> dict:
     return {
         "claim": claim_text,
         "verdict": VERDICTS[v.label],
-        "explanation": " ".join([v.lead, *v.reasons]).strip(),
+        # The answer's "why" (checked LLM sentences or the template), like in the full answer text.
+        "explanation": " ".join([v.lead, v.explanation] if v.explanation else [v.lead, *v.reasons]).strip(),
         "evidence_strength": STRENGTH.get(v.strength) if v.sources else "none",
         "strength_rationale": "; ".join(v.reasons) or None,
         "sources": [_source(s) for s in sources[:max_sources or len(sources)]],

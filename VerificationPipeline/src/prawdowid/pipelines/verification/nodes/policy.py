@@ -76,6 +76,17 @@ def decide(
     def best(label):
         return max((weights[evidence_by_id[s.chunk_id].source_type] for s in of(label)), default=0)
 
+    def decisive(label):
+        """One source settles the claim on its own only if it is primary material, or if it is a
+        strong fact-checker's own rating of the claim (section "ocena"). A fact-check's prose about
+        the same person or topic is not a ruling on this claim: then two independent sources are needed."""
+        for s in of(label):
+            e = evidence_by_id[s.chunk_id]
+            w = weights[e.source_type]
+            if w >= 1.0 or (e.section == "ocena" and w >= strong):
+                return True
+        return False
+
     sup, ref, ctx = groups("supports"), groups("refutes"), groups("missing_context")
 
     if sup and ref and best("supports") >= strong and best("refutes") >= strong:
@@ -91,17 +102,24 @@ def decide(
             [_describe("Materiał prawdziwy, ale wyrwany z kontekstu", of("missing_context"), evidence_by_id)],
             of("missing_context"),
         )
-    if ref and (best("refutes") >= strong or len(ref) >= 2) and not sup:
+    if ref and (decisive("refutes") or len(ref) >= 2) and not sup:
         return verdict(
             "falszywe",
             [_describe(f"{len(ref)} niezależne źródło(a) przeczą", of("refutes"), evidence_by_id)],
             of("refutes"),
         )
-    if sup and (best("supports") >= 1.0 or len(sup) >= 2) and not ref:
+    if sup and (decisive("supports") or len(sup) >= 2) and not ref:
         return verdict(
             "potwierdzone",
             [_describe(f"{len(sup)} niezależne źródło(a) potwierdzają", of("supports"), evidence_by_id)],
             of("supports"),
+        )
+    if of("announced"):
+        return verdict(
+            "brak_dowodow",
+            [_describe("Źródła mówią o zapowiedzi lub planie, ale nie potwierdzają, że to się wydarzyło",
+                       of("announced"), evidence_by_id)],
+            of("announced") + of("supports") + of("refutes"),
         )
     if all(evidence_by_id[s.chunk_id].source_type == "web" for s in rel):
         reason = ("Znaleziono tylko strony spoza katalogu źródeł (niezweryfikowani wydawcy); "
@@ -131,7 +149,7 @@ _KIND_ORDER = {"ocena": 0, "tresc": 1, "naglowek": 2}
 def source_refs(used: list[Stance], by_id: dict[str, Evidence]) -> list[SourceRef]:
     """Numbered sources behind a verdict, one per URL: confirming first, then refuting, then
     context; then primary material that a cited fact-checker links to (chain of sources)."""
-    order = {"supports": 0, "refutes": 1, "missing_context": 2}
+    order = {"supports": 0, "refutes": 1, "missing_context": 2, "announced": 3}
     refs: list[SourceRef] = []
     by_url: dict[str, SourceRef] = {}
     ranked = sorted(

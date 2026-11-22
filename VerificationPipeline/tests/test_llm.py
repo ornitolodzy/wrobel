@@ -95,7 +95,7 @@ def test_llm_calls_recorded_in_trace(params):
     r = run(params, claims=CLAIMS, stance=stance("irrelevant", "x"), explain=explain(("x", [1])))
     calls = {t["step"]: t["calls"] for t in r.trace if "calls" in t}
     assert calls["extract_claims"][0]["model"] == "fake-model"
-    assert calls["extract_claims"][0]["prompt_version"] == "0.4"
+    assert calls["extract_claims"][0]["prompt_version"] == "0.5"
     assert "judge_stance" in calls
 
 

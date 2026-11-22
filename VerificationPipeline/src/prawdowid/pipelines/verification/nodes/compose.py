@@ -33,6 +33,7 @@ ROLE_PL = {
     "potwierdza": "potwierdza",
     "zaprzecza": "zaprzecza",
     "brak_kontekstu": "brak kontekstu",
+    "zapowiedz": "tylko zapowiedź, nie potwierdza, że to się wydarzyło",
     "podlinkowane": "materiał, do którego odsyła",
 }
 
@@ -84,12 +85,23 @@ def _explain(claim: Claim, verdict: Verdict, llm_params: dict) -> str | None:
     )
 
 
-def template_why(verdict: Verdict) -> str:
+NOT_FOUND_IS_NOT_PROOF = "Brak wyniku w bazie nie oznacza, że to nieprawda."
+
+
+def template_why(verdict: Verdict, claim: Claim | None = None) -> str:
     """Deterministic 'why' when there is no (accepted) LLM explanation."""
     if verdict.label == "nie_podlega_weryfikacji":
         return verdict.reasons[0]
     if not verdict.sources:
-        return "Nie znaleziono źródeł, które rozstrzygają to twierdzenie."
+        needed = (claim.needed_source or "").strip().rstrip(".") if claim else ""
+        parts = ["Nie udało mi się znaleźć źródeł, które to rozstrzygają."]
+        if needed:
+            first = needed.split()[0]
+            if not first.isupper():  # skrót (MSZ, GIS) zostaje wielką literą
+                needed = needed[0].lower() + needed[1:]
+            parts.append(f"Potrzebne byłoby źródło takie jak: {needed}.")
+        parts.append(NOT_FOUND_IS_NOT_PROOF)
+        return " ".join(parts)
     for r in verdict.sources:
         rating = next((q for q in r.quotes if q.kind == "ocena"), None)
         if rating:
@@ -128,7 +140,8 @@ def compose_answer(claims: list[Claim], verdicts: list[Verdict], llm_params: dic
     blocks = []
     for v in verdicts:
         claim = by_id[v.claim_id]
-        why = _explain(claim, v, llm_params) or template_why(v)
+        why = _explain(claim, v, llm_params) or template_why(v, claim)
+        v.explanation = why
         lines = [f"Twierdzenie: {claim.text}"] if len(claims) > 1 else []
         lines.append(f"{v.lead} {why}")
         judged = [r for r in v.sources if r.role != "podlinkowane"]
@@ -143,6 +156,12 @@ def compose_answer(claims: list[Claim], verdicts: list[Verdict], llm_params: dic
             lines.append("Uwaga: " + " ".join(v.warnings))
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
+
+
+def compose(claims: list[Claim], verdicts: list[Verdict], llm_params: dict) -> tuple[str, list[Verdict]]:
+    """Node: the answer text and the verdicts with their "why" (explanation) for the API."""
+    answer = compose_answer(claims, verdicts, llm_params)
+    return answer, verdicts
 
 
 def assemble(norm_input, claims: list[Claim], verdicts: list[Verdict], answer: str) -> dict:

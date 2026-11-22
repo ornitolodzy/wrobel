@@ -57,7 +57,7 @@ def test_strict_schema_closes_objects_and_requires_all_fields():
     s = strict_schema(ClaimsOut)
     claim = s["$defs"]["ClaimOut"]
     assert claim["additionalProperties"] is False
-    assert set(claim["required"]) == {"text", "type", "entities", "time_ref", "is_question"}
+    assert set(claim["required"]) == {"text", "type", "entities", "time_ref", "is_question", "needed_source"}
 
 
 def test_self_hosted_model_uses_json_object_with_schema_in_prompt(calls):

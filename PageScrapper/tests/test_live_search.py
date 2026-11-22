@@ -77,7 +77,7 @@ def test_extract_terms_prefers_nouns_over_verbs() -> None:
 
 def test_relevance_requires_proper_nouns_not_common_words() -> None:
     terms = extract_terms("Donald Tusk jest premierem Polski?")
-    assert {t.word for t in terms if t.proper} == {"tusk"}  # „Donald” na początku zdania
+    assert {t.word for t in terms if t.proper} == {"donald", "tusk"}
     assert [t.word for t in terms if t.common] == ["polski"]
     body = "Premier Donald Tusk przedstawił dziś plan. " * 10
     # samo „Polska” w tytule nie wystarcza
@@ -138,3 +138,93 @@ def test_live_search_without_keywords_skips_sources(make_client) -> None:
         body = c.post("/live-search", json={"query": "Czy to prawda?"}).json()
         assert body["documents"] == []
         assert {s["status"] for s in body["sources"]} == {"skipped"}
+
+
+FACTCHECK_RESPONSE = {
+    "claims": [
+        {
+            "text": "PAP usunęła depeszę o wypowiedzi ministra",
+            "claimant": "Użytkownik X",
+            "claimReview": [{
+                "publisher": {"name": "Demagog", "site": "demagog.org.pl"},
+                "url": "https://demagog.org.pl/fake_news/pap-nie-usunela-depeszy/",
+                "title": "PAP nie usunęła depeszy",
+                "reviewDate": "2026-11-10T00:00:00Z",
+                "textualRating": "Fałsz",
+                "languageCode": "pl",
+            }],
+        },
+        {
+            "text": "Szczepionki zmieniają DNA",
+            "claimReview": [{"publisher": {"name": "AFP"}, "url": "https://afp.example/dna",
+                             "title": "Nie, szczepionki nie zmieniają DNA", "textualRating": "Fałsz"}],
+        },
+    ]
+}
+
+
+def factcheck_handler(status: int = 200, searches: list | None = None):
+    base = live_handler([])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "factchecktools.googleapis.com":
+            if searches is not None:
+                searches.append(dict(request.url.params))
+            if status != 200:
+                return httpx.Response(status, json={"error": {"message": "API key not valid"}})
+            return httpx.Response(200, json=FACTCHECK_RESPONSE)
+        return base(request)
+
+    return handler
+
+
+PAP_QUERY = "Czy PAP usunęła depeszę o wypowiedzi ministra?"
+
+
+def test_factcheck_api_stores_rating_records_without_fetching_pages(make_client) -> None:
+    searches: list[dict] = []
+    with make_client(factcheck_handler(searches=searches), renderer=FakeRenderer(),
+                     sources_file=LIVE_CATALOG, google_factcheck_api_key="k") as c:
+        body = c.post("/live-search", json={"query": PAP_QUERY}).json()
+        status = {s["source_id"]: s for s in body["sources"]}
+        assert status["google-factcheck"]["status"] == "ok"
+        assert searches[0]["languageCode"] == "pl" and searches[0]["key"] == "k"
+
+        docs = [d for d in body["documents"] if d["source_id"] == "google-factcheck"]
+        # rekord o DNA odrzucony: nie dotyczy PAP ani depeszy
+        assert [d["url"] for d in docs] == ["https://demagog.org.pl/fake_news/pap-nie-usunela-depeszy/"]
+        assert docs[0]["publisher"] == "Demagog"
+
+        stored = c.get("/documents", params={"source_id": "google-factcheck"}).json()["items"][0]
+        full = c.get(f"/documents/{stored['id']}").json()
+        assert "Ocena weryfikatora: Fałsz" in full["text"]
+        assert full["extra"]["live_search"] is True
+
+
+def test_factcheck_api_without_key_is_skipped(make_client) -> None:
+    with make_client(factcheck_handler(), renderer=FakeRenderer(), sources_file=LIVE_CATALOG) as c:
+        body = c.post("/live-search", json={"query": PAP_QUERY}).json()
+        status = {s["source_id"]: s for s in body["sources"]}["google-factcheck"]
+        assert status["status"] == "skipped"
+        assert "GOOGLE_FACTCHECK_API_KEY" in status["message"]
+
+
+def test_factcheck_api_failure_is_reported_not_treated_as_no_results(make_client) -> None:
+    with make_client(factcheck_handler(status=403), renderer=FakeRenderer(),
+                     sources_file=LIVE_CATALOG, google_factcheck_api_key="bad") as c:
+        body = c.post("/live-search", json={"query": PAP_QUERY}).json()
+        status = {s["source_id"]: s for s in body["sources"]}["google-factcheck"]
+        assert status["status"] == "error"
+        assert status["message"].startswith("Błąd dostępu do API weryfikatorów")
+
+
+def test_capitalised_first_word_is_a_name_and_question_words_are_dropped() -> None:
+    terms = extract_terms("Czy Wrocław wydaje na komunikację około 700 mln zł. Dlaczego Demagog podaje 650 mln zł?")
+    words = {t.word: t for t in terms}
+    assert "dlaczego" not in words
+    assert words["wrocław"].proper
+    claim_terms = extract_terms("Wrocław wydaje na komunikację 650 mln zł.")
+    assert {t.word for t in claim_terms if t.proper} == {"wrocław"}
+    # artykuł o innej kwocie z tą samą liczbą, bez Wrocławia w tytule, nie przechodzi
+    body = "Samorządy wnioskują o 650 mln zł na komunikację i obronność. " * 10
+    assert not is_relevant("Dolnośląskie samorządy wnioskują o blisko 650 mln zł", body, claim_terms)

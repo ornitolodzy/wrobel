@@ -2,7 +2,7 @@
 
 from .citations import validate_citations
 from .claims import extract_claims
-from .compose import assemble, compose_answer
+from .compose import assemble, compose, compose_answer
 from .normalize import normalize
 from .policy import decide, decide_all
 from .queries import build_queries
@@ -19,6 +19,7 @@ __all__ = [
     "validate_citations",
     "decide",
     "decide_all",
+    "compose",
     "compose_answer",
     "assemble",
     "select_context",
