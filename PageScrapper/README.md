@@ -81,6 +81,7 @@ Tests don't touch the internet (all pages are faked).
 | GET | `/documents` | saved documents (`?source_id=&limit=&offset=`), only a preview of the text |
 | GET | `/documents/{id}` | one document with full text |
 | GET | `/health` | is it alive |
+| POST | `/live-search` | search trusted sites live for a claim and add the matching pages to the corpus: `{"query": "...", "max_documents": 5}` |
 
 `render`: `auto` = use the headless browser only if the normal download gives almost no text,
 `never` = never, `always` = always.
@@ -95,6 +96,26 @@ Tests don't touch the internet (all pages are faked).
 | 502 / 504 | `http_error` / `fetch_error` / `timeout` | the site is down or refused |
 
 The scraper does **not** save pages from users, only documents from the source catalog.
+
+## Live search (no confirmed data in the corpus)
+
+When a check ends with `insufficient_evidence`, the API Gateway (`POST /api/v1/verify/live`) calls
+`POST /live-search`. The scraper:
+
+1. picks the key words of the claim (proper nouns, abbreviations, numbers first; stop words and most
+   verbs dropped) and cuts them to stems, because Polish endings change (`wizy` / `wiz` -> `wiz`);
+2. queries the site search of every catalog source that has a `live_search` block, in parallel:
+   `wp_rest` (WordPress REST search, words joined with AND, so 3 words -> 2 -> 1 until something is found),
+   `html` (plain results page + `link_pattern`) or `rendered` (results built by JavaScript, e.g. gov.pl);
+3. takes the best hits from different sites (max 2 per site, skips pages already in the database),
+   downloads them with the normal `/scrape` logic (robots.txt, SSRF checks, limits) and keeps only pages
+   whose title and most of the text match the key words;
+4. saves them like any other document (`extra.live_search = true`) and sends them to RAG, so the
+   gateway can run the verification again on a richer corpus.
+
+Sites that refuse automated requests (e.g. Cloudflare 403) are reported as `error` with
+"Witryna blokuje automatyczne zapytania." and skipped - we do not work around blocks.
+Source `govpl-wyszukiwarka` (adapter `live_only`) exists only for live search and is never crawled on schedule.
 
 ## Sending documents to RAG
 

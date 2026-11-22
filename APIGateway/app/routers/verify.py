@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
 
 from app.config import Settings
 from app.db import Database
 from app.deps import Client, get_db, get_downstream, get_runtime, get_settings, rate_limit
 from app.runtime_config import RuntimeConfigStore
-from app.schemas import CheckResponse, ClaimVerifyRequest, UrlVerifyRequest
+from app.schemas import CheckResponse, ClaimVerifyRequest, LiveVerifyRequest, UrlVerifyRequest
 from app.services import Downstream
 from app.validation import validate_image, validate_public_url, validate_text
-from app.verification import CheckRunner
+from app.verification import CheckRunner, LiveSearchNotApplicable
 
 router = APIRouter(prefix="/api/v1/verify", tags=["verify"])
 
@@ -58,3 +58,28 @@ async def verify_image(
     mime = validate_image(data, settings.max_image_size_bytes)
     filename = (file.filename or "image").replace("\\", "/").rsplit("/", 1)[-1][:128]
     return await runner.verify_image(filename, data, mime)
+
+
+@router.post(
+    "/live",
+    response_model=CheckResponse,
+    responses=_RESPONSES,
+    summary="Brak potwierdzonych danych: szuka na żywo w zaufanych witrynach i weryfikuje ponownie",
+)
+async def verify_live(
+    body: LiveVerifyRequest,
+    runner: CheckRunner = Depends(get_runner),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> JSONResponse:
+    if not settings.live_search_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wyszukiwanie na żywo jest wyłączone.")
+    check = await db.get_check(body.check_id)
+    if check is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nie znaleziono sprawdzenia.")
+    try:
+        return await runner.verify_live(
+            check, settings.live_search_max_documents, settings.live_search_timeout_seconds
+        )
+    except LiveSearchNotApplicable as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from None

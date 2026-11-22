@@ -94,6 +94,33 @@
             <span>{{ status() === 'open' ? 'Szukam odpowiedzi…' : 'Łączenie z serwerem…' }}</span>
           </div>
         }
+
+        <!-- Brak potwierdzonych danych w bazie: wyszukiwanie na żywo w zaufanych witrynach -->
+        @if (m.results && m.live; as live) {
+          <div class="live" [class.searching]="live.state === 'searching'" role="status">
+            @if (live.state === 'searching') {
+              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span>Brak potwierdzonych danych w bazie. Szukam na żywo w zaufanych źródłach…</span>
+            } @else {
+              <span class="live-badge" [class.improved]="live.improved">
+                {{ live.improved ? 'Sprawdzone na żywo' : 'Wyszukiwanie na żywo' }}
+              </span>
+              @if (live.message) {
+                <p>{{ live.message }}</p>
+              }
+              @if (live.documents?.length) {
+                <ul aria-label="Strony znalezione na żywo">
+                  @for (d of live.documents; track d.url) {
+                    <li>
+                      <a [href]="d.url" target="_blank" rel="noopener noreferrer">{{ d.title }}</a>
+                      <small class="meta">{{ d.publisher ?? d.host }}</small>
+                    </li>
+                  }
+                </ul>
+              }
+            }
+          </div>
+        }
       </div>
     </div>
   }

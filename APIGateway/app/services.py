@@ -144,6 +144,20 @@ class Downstream:
         except (ValueError, ValidationError) as exc:
             raise DownstreamError("page_scrapper", "bad_response", "Serwis 'page_scrapper' zwrócił odpowiedź w niepoprawnym formacie.") from exc
 
+    async def live_search(self, query: str, max_documents: int, timeout: float) -> dict[str, Any]:
+        """PageScrapper szuka twierdzenia w wyszukiwarkach zaufanych witryn i dokłada strony do bazy wiedzy."""
+        if self.is_mock("page_scrapper"):
+            raise DownstreamError("page_scrapper", "not_configured", "PageScrapper nie jest podłączony.")
+        data = await self._post(
+            "page_scrapper",
+            "/live-search",
+            json={"query": query[:2000], "max_documents": max_documents},
+            timeout=timeout,
+        )
+        if not isinstance(data, dict):
+            raise DownstreamError("page_scrapper", "bad_response", "Serwis 'page_scrapper' zwrócił niepoprawną odpowiedź.")
+        return data
+
     async def scraper_get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         if self.is_mock("page_scrapper"):
             raise DownstreamError("page_scrapper", "not_configured", "PageScrapper nie jest podłączony.")

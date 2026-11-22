@@ -14,7 +14,7 @@ import { VerdictTag } from '../../../shared/verdict-tag/verdict-tag';
   imports: [VerdictTag, DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-thread.html',
-  styleUrl: './chat-thread.css',
+  styleUrls: ['./chat-thread.css', './chat-live.css'],
 })
 export class ChatThread {
   readonly messages = input.required<ChatMessage[]>();

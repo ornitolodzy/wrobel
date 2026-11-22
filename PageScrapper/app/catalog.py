@@ -5,7 +5,28 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 SourceType = Literal["official", "fact_check", "disinfo_db"]
-Adapter = Literal["govpl_list", "html_list", "odyseusz", "rss", "sejm_eli", "google_factcheck", "euvsdisinfo_mcp", "file_import"]
+Adapter = Literal[
+    "govpl_list", "html_list", "odyseusz", "rss", "sejm_eli", "google_factcheck", "euvsdisinfo_mcp", "file_import",
+    "live_only",
+]
+LiveSearchKind = Literal["wp_rest", "html", "rendered"]
+
+
+class LiveSearchConfig(BaseModel):
+    """Wyszukiwarka witryny używana przy wyszukiwaniu na żywo (gdy w bazie brak potwierdzonych danych).
+
+    kind: wp_rest  - WordPress REST API (`{url}/wp-json/wp/v2/search`), `url` = adres witryny
+          html     - zwykła strona wyników, `url` z `{query}`, linki wybierane przez `link_pattern`
+          rendered - jak html, ale strona wyników budowana JavaScriptem (Playwright)
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: LiveSearchKind
+    url: str
+    link_pattern: str | None = None
+    exclude_pattern: str | None = None
+    max_results: int = Field(default=5, ge=1, le=20)
 
 
 class SourceConfig(BaseModel):
@@ -23,6 +44,7 @@ class SourceConfig(BaseModel):
     license: str = ""
     description: str = ""
     options: dict[str, Any] = Field(default_factory=dict)
+    live_search: LiveSearchConfig | None = None
 
 
 class Catalog(BaseModel):

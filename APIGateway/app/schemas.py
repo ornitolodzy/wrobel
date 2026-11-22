@@ -112,6 +112,38 @@ class ScrapedPage(PageInfo):
     rendered: bool = False
 
 
+class LiveVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    check_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+
+
+class LiveSearchSourceInfo(BaseModel):
+    name: str
+    status: Literal["ok", "no_results", "skipped", "error"]
+    found: int = 0
+
+
+class LiveSearchDocumentInfo(BaseModel):
+    title: str | None = None
+    url: str
+    publisher: str | None = None
+    source_name: str | None = None
+    published_at: str | None = None
+
+
+class LiveSearchInfo(BaseModel):
+    """Wynik wyszukiwania na żywo w zaufanych witrynach (gdy w bazie brak potwierdzonych danych)."""
+
+    previous_check_id: str
+    terms: list[str] = Field(default_factory=list)
+    sources: list[LiveSearchSourceInfo] = Field(default_factory=list)
+    documents: list[LiveSearchDocumentInfo] = Field(default_factory=list)
+    reverified: bool = False
+    improved: bool = False
+    message: str
+
+
 class CheckResponse(BaseModel):
     check_id: str
     status: CheckStatus
@@ -129,6 +161,7 @@ class CheckResponse(BaseModel):
     mock: bool = False
     pii_masked: bool = False
     error: ErrorInfo | None = None
+    live_search: LiveSearchInfo | None = None
 
 
 class OcrResponse(BaseModel):

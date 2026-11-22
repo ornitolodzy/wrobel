@@ -40,6 +40,22 @@ export interface SearchResultsPayload {
   query: string;
   results: SearchResult[];
   verdict?: Verdict;
+  /** Id sprawdzenia w API Gateway (do wyszukiwania na żywo). */
+  checkId?: string;
+  /** W bazie brak potwierdzonych danych -> można spróbować wyszukać na żywo. */
+  liveEligible?: boolean;
+  /** Wynik wyszukiwania na żywo (gdy ta odpowiedź jest już po nim). */
+  live?: LiveSearchView;
+}
+
+/** Stan wyszukiwania na żywo w zaufanych witrynach (gdy w bazie brak potwierdzonych danych). */
+export interface LiveSearchView {
+  state: 'searching' | 'done' | 'failed';
+  message?: string;
+  /** Strony znalezione na żywo i dołączone do bazy wiedzy. */
+  documents?: SourceLink[];
+  /** Nowe źródła pozwoliły ocenić twierdzenie. */
+  improved?: boolean;
 }
 
 // ---------- Model rozmowy (tylko front) ----------
@@ -64,6 +80,8 @@ export interface BotMessage {
   verdict: Verdict | null;
   /** Kiedy przyszła odpowiedź; `null` = jeszcze czekamy. */
   answeredAt: Date | null;
+  checkId?: string;
+  live?: LiveSearchView;
 }
 
 export type ChatMessage = UserMessage | BotMessage;

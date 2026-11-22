@@ -85,3 +85,38 @@ class CorpusStats(BaseModel):
 class DocumentList(BaseModel):
     total: int
     items: list[DocumentOut]
+
+
+class LiveSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=3, max_length=2000)
+    max_documents: int = Field(default=5, ge=1, le=10)
+
+
+class LiveSearchSource(BaseModel):
+    source_id: str
+    name: str
+    status: Literal["ok", "no_results", "skipped", "error"]
+    found: int
+    message: str | None = None
+
+
+class LiveSearchDocument(BaseModel):
+    url: str
+    title: str | None
+    publisher: str | None
+    published_at: date | None
+    source_id: str
+    source_name: str
+    source_type: str
+    new: bool
+    ingested: bool
+
+
+class LiveSearchOut(BaseModel):
+    query: str
+    terms: list[str]
+    sources: list[LiveSearchSource]
+    documents: list[LiveSearchDocument]
+    duration_ms: int

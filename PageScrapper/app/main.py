@@ -13,7 +13,7 @@ from app.db import Database
 from app.fetch import FetchError, Fetcher, Resolver, system_resolver
 from app.ingest import Ingestor, RagClient, schedule_loop
 from app.render import PlaywrightRenderer, Renderer
-from app.routers import catalog, ingest, scrape
+from app.routers import catalog, ingest, live, scrape
 
 logger = logging.getLogger("scraper")
 
@@ -86,6 +86,7 @@ def create_app(
     app.include_router(scrape.router)
     app.include_router(ingest.router)
     app.include_router(catalog.router)
+    app.include_router(live.router)
     return app
 
 

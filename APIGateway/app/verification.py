@@ -14,6 +14,9 @@ from app.schemas import (
     CheckStatus,
     ErrorInfo,
     InputType,
+    LiveSearchDocumentInfo,
+    LiveSearchInfo,
+    LiveSearchSourceInfo,
     LlmVerifyResponse,
     ModelInfo,
     OcrResponse,
@@ -67,6 +70,58 @@ class CheckRunner:
             image=(filename, data, mime),
         )
 
+    async def verify_live(self, check: Check, max_documents: int, timeout: float) -> JSONResponse:
+        """Drugie podejście do sprawdzenia bez potwierdzonych danych: PageScrapper szuka na żywo
+        w wyszukiwarkach zaufanych witryn, dokłada znalezione strony do bazy wiedzy, a my weryfikujemy
+        te same treści jeszcze raz. Bez nowych stron zwracamy poprzedni wynik (bez drugiego wywołania LLM)."""
+        prev = CheckResponse.model_validate(check.response)
+        weak = [c.claim for c in prev.claims if c.verdict == Verdict.insufficient_evidence]
+        if prev.status != CheckStatus.completed or prev.mock or not weak:
+            raise LiveSearchNotApplicable(
+                "Wyszukiwanie na żywo dotyczy tylko sprawdzeń zakończonych brakiem potwierdzonych danych."
+            )
+        input_type = prev.input_type
+        if input_type == InputType.image and not prev.ocr_text:
+            raise LiveSearchNotApplicable("Brak odczytanego tekstu ze zdjęcia do wyszukania.")
+
+        try:
+            data = await self.downstream.live_search(" ".join(weak), max_documents, timeout)
+        except DownstreamError as exc:
+            info = LiveSearchInfo(previous_check_id=prev.check_id, message=f"Wyszukiwanie na żywo nie powiodło się: {exc.message}")
+            return self._unchanged(prev, info)
+
+        info = _live_info(prev.check_id, data)
+        if not info.documents:
+            return self._unchanged(prev, info)
+
+        info.reverified = True
+        if input_type == InputType.url:
+            return await self._run(
+                input_type=input_type,
+                input_for_log=check.input_masked,
+                content={"url": check.input_masked},
+                pii_types=[],
+                page_url=check.input_masked,
+                live_search=info,
+            )
+        content = {"ocr_text": prev.ocr_text} if input_type == InputType.image else {"text": check.input_masked}
+        return await self._run(
+            input_type=input_type,
+            input_for_log=check.input_masked,
+            content=content,
+            pii_types=[],
+            live_search=info,
+            ocr_text=prev.ocr_text,
+        )
+
+    def _unchanged(self, prev: CheckResponse, info: LiveSearchInfo) -> JSONResponse:
+        response = prev.model_copy(update={"live_search": info})
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=response.model_dump(mode="json"),
+            headers={"X-Check-Id": prev.check_id},
+        )
+
     async def _run(
         self,
         *,
@@ -76,6 +131,8 @@ class CheckRunner:
         pii_types: list[str],
         image: tuple[str, bytes, str] | None = None,
         page_url: str | None = None,
+        live_search: LiveSearchInfo | None = None,
+        ocr_text: str | None = None,
     ) -> JSONResponse:
         check_id = str(uuid.uuid4())
         created_at = utcnow()
@@ -88,7 +145,7 @@ class CheckRunner:
         usage: dict[str, Any] | None = None
         mock = False
         error: DownstreamError | None = None
-        ocr_masked: str | None = None
+        ocr_masked: str | None = ocr_text
         page_info: PageInfo | None = None
         extra_limitations: list[str] = []
 
@@ -161,9 +218,12 @@ class CheckRunner:
                 model=model,
                 pii_masked=bool(pii_types),
                 error=ErrorInfo(code=error.code, message=error.message),
+                live_search=live_search,
             )
         else:
             assert result is not None
+            if live_search is not None:
+                live_search = _with_outcome(live_search, result)
             response = CheckResponse(
                 check_id=check_id,
                 status=CheckStatus(result.status),
@@ -180,6 +240,7 @@ class CheckRunner:
                 model=model,
                 mock=mock,
                 pii_masked=bool(pii_types),
+                live_search=live_search,
             )
 
         await self._persist(response, input_for_log, error, usage, pii_types)
@@ -241,3 +302,51 @@ class CheckRunner:
         )
         if any(v == Verdict.insufficient_evidence.value for v in verdicts) and not response.mock:
             await self.db.log_event("abstained", client=self.client.name, check_id=response.check_id)
+
+
+class LiveSearchNotApplicable(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+def _live_info(previous_check_id: str, data: dict[str, Any]) -> LiveSearchInfo:
+    sources = [
+        LiveSearchSourceInfo(name=s.get("name", "?"), status=s.get("status", "error"), found=s.get("found", 0))
+        for s in data.get("sources", [])
+        if isinstance(s, dict)
+    ]
+    documents = [
+        LiveSearchDocumentInfo(
+            title=d.get("title"),
+            url=d["url"],
+            publisher=d.get("publisher"),
+            source_name=d.get("source_name"),
+            published_at=d.get("published_at"),
+        )
+        for d in data.get("documents", [])
+        if isinstance(d, dict) and d.get("url") and d.get("ingested", True)
+    ]
+    searched = ", ".join(s.name for s in sources if s.status in ("ok", "no_results"))
+    if not searched:
+        message = "Nie udało się przeszukać na żywo żadnej z zaufanych witryn."
+    elif documents:
+        message = (
+            f"W bazie nie było potwierdzonych danych, więc przeszukano na żywo: {searched}. "
+            f"Dołączone nowe strony: {len(documents)}."
+        )
+    else:
+        message = f"Przeszukano na żywo: {searched} - brak nowych materiałów na ten temat."
+    return LiveSearchInfo(
+        previous_check_id=previous_check_id,
+        terms=[str(t) for t in data.get("terms", [])],
+        sources=sources,
+        documents=documents,
+        message=message,
+    )
+
+
+def _with_outcome(info: LiveSearchInfo, result: LlmVerifyResponse) -> LiveSearchInfo:
+    improved = any(c.verdict != Verdict.insufficient_evidence for c in result.claims)
+    suffix = " Nowe źródła pozwoliły ocenić twierdzenie." if improved else " Nadal nie wystarczają do oceny."
+    return info.model_copy(update={"improved": improved, "message": info.message + suffix})
