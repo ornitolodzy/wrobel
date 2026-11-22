@@ -1,0 +1,59 @@
+# DATA (bez ruchu z internetu; 5432 dla EDGE+APP, 7687 dla APP): Postgres 16 + pgvector, Neo4j.
+# Seedy (korpus + embeddingi, graf) wczytywane tylko przy pierwszym starcie z pustymi wolumenami.
+name: wrobel
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: prawdowid
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: prawdowid
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/seed:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prawdowid -d prawdowid"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  neo4j-seed:
+    image: neo4j:5.26-community
+    user: "7474:7474"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ -d /data/databases/neo4j ]; then echo "neo4j-data nie jest pusty: pomijam seed"; exit 0; fi
+        if [ ! -f /seed/neo4j.dump ]; then echo "brak db/neo4j-seed/neo4j.dump: pusty graf"; exit 0; fi
+        neo4j-admin database load neo4j --from-path=/seed
+    volumes:
+      - neo4j-data:/data
+      - ./db/neo4j-seed:/seed:ro
+
+  neo4j:
+    image: neo4j:5.26-community
+    depends_on:
+      neo4j-seed:
+        condition: service_completed_successfully
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512M
+    ports:
+      - "7687:7687"
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#neo4j/}\" 'RETURN 1' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  neo4j-data:

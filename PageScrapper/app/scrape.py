@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
@@ -24,14 +25,27 @@ def _extract_html(html: str, url: str) -> Extracted:
     return extract_article(html, url)
 
 
+@dataclass
+class ScrapedPage:
+    page: Page
+    html: str | None  # HTML the text was extracted from (fetched or rendered); None for text/plain
+    site_publisher: str | None  # publisher from the page metadata; Page.publisher falls back to the host
+
+
 async def scrape_url(url: str, mode: str, fetcher: Fetcher, renderer: Renderer, settings: Settings) -> Page:
+    return (await fetch_page(url, mode, fetcher, renderer, settings)).page
+
+
+async def fetch_page(url: str, mode: str, fetcher: Fetcher, renderer: Renderer, settings: Settings) -> ScrapedPage:
     result = await fetcher.get(url)
     final_url = result.final_url
     rendered = False
+    html: str | None = result.text if result.is_html else None
 
     if urlsplit(final_url).netloc == "odyseusz.gov.pl":
         page = await renderer.render(final_url, expand_selector=EXPAND_SELECTOR, wait_selector=WAIT_SELECTOR)
         extracted, final_url, rendered = extract_odyseusz(page.html, page.final_url), page.final_url, True
+        html = page.html
     elif result.is_html:
         extracted = _extract_html(result.text, final_url)
         too_short = len(extracted.text) < settings.min_text_chars
@@ -41,7 +55,7 @@ async def scrape_url(url: str, mode: str, fetcher: Fetcher, renderer: Renderer, 
                 page = await renderer.render(final_url)
                 candidate = _extract_html(page.html, page.final_url)
                 if len(candidate.text) > len(extracted.text):
-                    extracted, final_url, rendered = candidate, page.final_url, True
+                    extracted, final_url, rendered, html = candidate, page.final_url, True, page.html
             except FetchError as exc:
                 if mode == "always":
                     raise
@@ -59,7 +73,7 @@ async def scrape_url(url: str, mode: str, fetcher: Fetcher, renderer: Renderer, 
             422,
         )
 
-    return Page(
+    out = Page(
         url=url,
         final_url=final_url,
         title=extracted.title,
@@ -70,3 +84,4 @@ async def scrape_url(url: str, mode: str, fetcher: Fetcher, renderer: Renderer, 
         text=extracted.text,
         rendered=rendered,
     )
+    return ScrapedPage(page=out, html=html, site_publisher=extracted.publisher)

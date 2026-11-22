@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Body, HTTPException, Query, Request, status
 
 from app.db import ScrapeRun
-from app.ingest import Ingestor, RunAlreadyActive, UnknownSource
-from app.schemas import RunOut, ScrapAllRequest
+from app.ingest import Ingestor, PageNotInCatalog, RunAlreadyActive, UnknownSource
+from app.schemas import RunOut, ScrapAllRequest, ScrapPageOut, ScrapPageRequest
 
 router = APIRouter(prefix="/scrap", tags=["ingest"])
 
@@ -28,6 +28,42 @@ async def scrap_all(request: Request, body: ScrapAllRequest = Body(default_facto
     except UnknownSource as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Nieznane źródło: {exc}") from None
     return _to_out(run)
+
+
+@router.post(
+    "/page",
+    response_model=ScrapPageOut,
+    summary="Pobiera jedną stronę z witryny z katalogu i zapisuje ją w bazie (jak /scrap/all)",
+)
+async def scrap_page(body: ScrapPageRequest, request: Request) -> ScrapPageOut:
+    ingestor: Ingestor = request.app.state.ingestor
+    try:
+        result = await ingestor.scrape_page(body.url, body.source_id, body.render)
+    except UnknownSource as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Nieznane źródło: {exc}") from None
+    except PageNotInCatalog as exc:
+        detail = {"code": "not_in_catalog", "message": str(exc), "allowed_sites": request.app.state.catalog.page_sites()}
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail) from None
+    doc, details = result.document, result.details
+    return ScrapPageOut(
+        run_id=result.run.id,
+        url=details["url"],
+        final_url=doc.url,
+        source_id=result.source.id,
+        source_name=result.source.name,
+        source_type=result.source.source_type,
+        outcome=details["outcome"],
+        document_id=doc.id,
+        revision=doc.revision or 1,
+        title=doc.title,
+        publisher=doc.publisher,
+        published_at=doc.published_at,
+        language=doc.language,
+        text_chars=len(doc.text),
+        claim_reviews=details["claim_reviews"],
+        rendered=details["rendered"],
+        rag=details["rag"],
+    )
 
 
 @router.get("/runs", response_model=list[RunOut], summary="Zwraca historię uruchomień scrapowania")

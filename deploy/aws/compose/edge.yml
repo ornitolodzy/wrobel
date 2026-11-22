@@ -1,0 +1,56 @@
+# EDGE (publiczny, Elastic IP :80): kanały + brzeg systemu.
+# Uruchamiany na EC2 z katalogu paczki (/opt/wrobel/bundle), ścieżki względne są względem niej.
+# Zmienne ${...}: .env z laptopa + infra.env z Terraforma + release.env (tag obrazów).
+name: wrobel
+
+services:
+  api-gateway:
+    image: ${REGISTRY}/wrobel/api-gateway:${IMAGE_TAG}
+    environment:
+      APP_ENV: prod
+      LOG_LEVEL: INFO
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      CORS_ORIGINS: ${PUBLIC_URL}
+      TRUSTED_PROXIES: 127.0.0.1
+      DATABASE_URL: postgresql+asyncpg://prawdowid:${PG_PASSWORD}@${DATA_HOST}:5432/prawdowid
+      IMAGE_RECOGNITION_URL: http://${APP_HOST}:8001
+      PAGE_SCRAPPER_URL: http://${APP_HOST}:8002
+      LLM_SERVICE_URL: http://${APP_HOST}:8003
+      LLM_PROVIDER: pipeline
+      LLM_MODEL: conf
+      DOWNSTREAM_TIMEOUT_SECONDS: "180" # < proxy_read_timeout w proxy/nginx.conf
+      MOCK_MODE: "false"
+    restart: unless-stopped
+
+  frontend:
+    image: ${REGISTRY}/wrobel/frontend:${IMAGE_TAG}
+    environment:
+      PORT: 4000
+    restart: unless-stopped
+
+  proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - api-gateway
+    restart: unless-stopped
+
+  # Włączany przez wrobel-deploy.sh tylko, gdy w .env jest DISCORD_TOKEN.
+  discord-bot:
+    profiles: ["discord"]
+    image: ${REGISTRY}/wrobel/discord-bot:${IMAGE_TAG}
+    environment:
+      LOG_LEVEL: INFO
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      GATEWAY_URL: http://api-gateway:8000
+      USER_LIMIT_PER_MINUTE: ${DISCORD_USER_LIMIT_PER_MINUTE:-5}
+      REQUEST_TIMEOUT_SECONDS: "200"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    restart: unless-stopped

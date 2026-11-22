@@ -3,10 +3,14 @@
 Baza grafowa (Neo4j) z wiedzą dla systemu Prawdowid. Jedyne źródło kontekstu dla VerificationPipeline
 (ADR 0005 tam: weryfikacja bez dostępu do sieci, kontekst tylko z grafu).
 
-```
-PageScrapper ──POST /ingest/document──► ContextGraph ──► Neo4j ◄── VerificationPipeline (tylko odczyt)
-ImageRecognitionService ──POST /ingest/image──┘          │
-Bielik (offline) ──► POST /events/extract (warstwa 2) ───┘
+```mermaid
+flowchart LR
+    ps["PageScrapper<br/>documents: źródło prawdy"] -->|"POST /ingest/document<br/>z revision"| cg["ContextGraph :8100"]
+    cg -.->|"POST /sync/reconcile<br/>GET /documents/revisions"| ps
+    ocr["ImageRecognitionService"] -.->|"POST /ingest/image<br/>endpoint gotowy, niepodłączony"| cg
+    bielik["Bielik, offline"] -->|"POST /events/extract<br/>warstwa 2"| cg
+    cg -->|"jedyny pisarz"| neo[("Neo4j")]
+    vp["VerificationPipeline"] -->|"tylko odczyt"| neo
 ```
 
 Graf ma dwie warstwy ([docs/graph-model.md](docs/graph-model.md)):

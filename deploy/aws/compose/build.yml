@@ -1,0 +1,29 @@
+# Build + push obrazów do ECR z laptopa (deploy/aws/deploy.sh). Konteksty względem tego pliku.
+services:
+  api-gateway:
+    image: ${REGISTRY}/wrobel/api-gateway:${IMAGE_TAG}
+    build: ../../../APIGateway
+  frontend:
+    image: ${REGISTRY}/wrobel/frontend:${IMAGE_TAG}
+    build: ../../../Frontend
+  discord-bot:
+    image: ${REGISTRY}/wrobel/discord-bot:${IMAGE_TAG}
+    build: ../../../DiscordBot
+  verification-pipeline:
+    image: ${REGISTRY}/wrobel/verification-pipeline:${IMAGE_TAG}
+    build:
+      context: ../../../VerificationPipeline
+      args:
+        # true: lokalny reranker na CPU jako fallback, gdy serwer GPU nie odpowiada
+        WITH_RERANK: ${WITH_RERANK:-true}
+  page-scrapper:
+    image: ${REGISTRY}/wrobel/page-scrapper:${IMAGE_TAG}
+    build: ../../../PageScrapper
+  ocr:
+    image: ${REGISTRY}/wrobel/ocr:${IMAGE_TAG}
+    build:
+      context: ../../../ImageRecognitionServcie
+      dockerfile: Dockerfile
+  context-graph:
+    image: ${REGISTRY}/wrobel/context-graph:${IMAGE_TAG}
+    build: ../../../ContextGraph
