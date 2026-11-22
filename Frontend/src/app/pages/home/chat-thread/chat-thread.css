@@ -11,6 +11,33 @@
   min-width: 0;
 }
 
+/* Data i godzina nad dymkiem — lekka, szara; ujemny margines znosi odstęp wątku (gap 20px) */
+.stamp {
+  margin-bottom: -14px;
+  font-size: 12px;
+  color: var(--prawdowid-text-secondary);
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.stamp.user {
+  align-self: flex-end;
+  padding-right: 22px;
+}
+
+/* nad dymkiem, nie nad avatarem (40px + 10px odstępu) */
+.stamp.bot {
+  align-self: flex-start;
+  padding-left: 52px;
+  animation: stamp-in 300ms ease both;
+}
+
+@keyframes stamp-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* ---------- Użytkownik (prawa strona) ---------- */
 .msg.user {
   align-self: flex-end;

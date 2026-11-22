@@ -170,8 +170,15 @@ export class Home {
   private addExchange(text: string, img: AttachedImage | null): void {
     this.messages.update((list) => [
       ...list,
-      { id: ++this.nextId, role: 'user', text, imageUrl: img?.url ?? null },
-      { id: ++this.nextId, role: 'bot', query: text, results: null, verdict: null },
+      { id: ++this.nextId, role: 'user', text, imageUrl: img?.url ?? null, sentAt: new Date() },
+      {
+        id: ++this.nextId,
+        role: 'bot',
+        query: text,
+        results: null,
+        verdict: null,
+        answeredAt: null,
+      },
     ]);
     // URL zdjęcia należy teraz do wiadomości — nie zwalniamy go tutaj
     this.image.set(null);
@@ -198,6 +205,7 @@ export class Home {
         ...(list[i] as BotMessage),
         results: payload.results,
         verdict: payload.verdict ?? null,
+        answeredAt: new Date(),
       };
       return next;
     });
@@ -419,13 +427,23 @@ export class Home {
 }
 
 function hasFiles(event: DragEvent): boolean {
-  return !!event.dataTransfer?.types.includes('Files');
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files');
 }
 
+/**
+ * Pierwszy obrazek z schowka / przeciągnięcia. Zrzuty ekranu i „Kopiuj obraz” część
+ * przeglądarek wystawia tylko w `items` (pusty `files`), więc sprawdzamy oba.
+ */
 function firstImage(data: DataTransfer | null): File | null {
   if (!data) return null;
   for (const file of Array.from(data.files)) {
     if (file.type.startsWith('image/')) return file;
+  }
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (file) return file;
+    }
   }
   return null;
 }

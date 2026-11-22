@@ -38,6 +38,8 @@
   --prawdowid-bg-canvas: #e6e2dc;
   --prawdowid-bg-input: #f4f1ea;
   --prawdowid-bg-footer: #c5b299;
+  /* Wysokość paska stopki na mobile (bez safe-area); FAB Discorda i composer się do niej równają */
+  --prawdowid-footer-h-mobile: 52px;
 
   --prawdowid-text-primary: #1f1e1e;
   --prawdowid-text-secondary: #9e826b;

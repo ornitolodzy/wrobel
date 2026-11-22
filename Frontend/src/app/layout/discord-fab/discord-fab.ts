@@ -101,11 +101,12 @@ import { DISCORD_BOT_URL } from '../../core/links';
       transform: translate(0, -50%);
     }
 
-    /* Mobile: mniejszy i nad przyklejonym polem czatu (pełna szerokość), bez podpisu */
+    /* Mobile: mniejszy, bez podpisu, w prawym dolnym rogu w pasku stopki (na wysokości
+       „HackNation 2026”); composer czatu stoi nad stopką, więc nic się nie nakłada */
     @media (max-width: 600px) {
       :host {
         right: calc(16px + env(safe-area-inset-right));
-        bottom: calc(104px + env(safe-area-inset-bottom));
+        bottom: calc((var(--prawdowid-footer-h-mobile) - 44px) / 2 + env(safe-area-inset-bottom));
       }
       .fab {
         width: 44px;

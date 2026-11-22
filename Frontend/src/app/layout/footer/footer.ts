@@ -10,7 +10,10 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
     </a>
   `,
   styles: `
+    /* Nad polem czatu (z-index 2): composer wysuwa się spod stopki, nie nad nią */
     :host {
+      position: relative;
+      z-index: 3;
       display: flex;
       flex-wrap: wrap;
       gap: 8px 24px;
@@ -19,12 +22,18 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
       font-size: var(--prawdowid-fs-meta);
     }
 
-    /* Mobile: zamiast paska tylko szary napis HackNation 2026 na środku */
+    /* Mobile: zamiast paska tylko szary napis HackNation 2026 na środku. Stopka przyklejona
+       do dołu ekranu; w jej pasku, w prawym rogu, siedzi FAB Discorda. */
     @media (max-width: 600px) {
       :host {
+        position: sticky;
+        bottom: 0;
+        box-sizing: border-box;
+        height: calc(var(--prawdowid-footer-h-mobile) + env(safe-area-inset-bottom));
+        align-items: center;
         justify-content: center;
-        background-color: transparent;
-        padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+        background-color: var(--prawdowid-bg-canvas);
+        padding: 0 16px env(safe-area-inset-bottom);
       }
       a {
         color: var(--prawdowid-border-light);

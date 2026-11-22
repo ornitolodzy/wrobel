@@ -50,6 +50,8 @@ export interface UserMessage {
   text: string;
   /** Object URL dociętego zdjęcia (zwalniany przy resecie rozmowy). */
   imageUrl: string | null;
+  /** Kiedy użytkownik wysłał pytanie (znacznik nad dymkiem). */
+  sentAt: Date;
 }
 
 export interface BotMessage {
@@ -60,6 +62,8 @@ export interface BotMessage {
   /** `null` = czekamy na odpowiedź (loader). */
   results: SearchResult[] | null;
   verdict: Verdict | null;
+  /** Kiedy przyszła odpowiedź; `null` = jeszcze czekamy. */
+  answeredAt: Date | null;
 }
 
 export type ChatMessage = UserMessage | BotMessage;
