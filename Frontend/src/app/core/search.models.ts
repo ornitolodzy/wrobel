@@ -46,6 +46,14 @@ export interface SearchResultsPayload {
   liveEligible?: boolean;
   /** Wynik wyszukiwania na żywo (gdy ta odpowiedź jest już po nim). */
   live?: LiveSearchView;
+  /** Ograniczenia odpowiedzi do pokazania pod wynikiem. */
+  notes?: string[];
+  /** Pętla informacji: stan sprawy moderatora (rekomendacja / przekazanie). */
+  caseNotes?: string[];
+  /** Tekst odczytany ze zdjęcia (OCR), żeby użytkownik widział, co sprawdzono. */
+  ocrText?: string;
+  /** Zapisy sprawdzenia w API Gateway (z wyszukiwaniem na żywo: dwa), do usunięcia. */
+  checkIds?: string[];
 }
 
 /** Stan wyszukiwania na żywo w zaufanych witrynach (gdy w bazie brak potwierdzonych danych). */
@@ -82,6 +90,12 @@ export interface BotMessage {
   answeredAt: Date | null;
   checkId?: string;
   live?: LiveSearchView;
+  notes?: string[];
+  caseNotes?: string[];
+  ocrText?: string;
+  /** Zapisy po stronie serwera; `deleted` po kliknięciu „Usuń zapis”. */
+  checkIds?: string[];
+  deleted?: 'pending' | 'done' | 'failed';
   /** Postęp sprawdzania, zanim przyjdzie wynik (strumień z API Gateway). */
   progress?: ProgressView;
 }

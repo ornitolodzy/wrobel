@@ -15,11 +15,18 @@ _PII_PATTERNS = {
     "TEL": re.compile(r"(?<!\d)(?:\+48[\s-]?)?\d{3}[\s-]?\d{3}[\s-]?\d{3}(?!\d)"),
 }
 
-# Placeholder heuristic; replace with a classifier
-# (protectai/deberta-v3-base-prompt-injection-v2). Result is a FLAG, not a block.
+# Heuristic (PL + EN); can be replaced with a classifier
+# (protectai/deberta-v3-base-prompt-injection-v2). Result is a FLAG, not a block: the text is still
+# checked as data, the flag is shown to the user and logged as an audit event by the gateway.
 _INJECTION_HINTS = re.compile(
-    r"(ignore (all |previous )?instructions|zignoruj (poprzednie |wszystkie )?instrukcje"
-    r"|system prompt|jesteś teraz|you are now)",
+    r"(\b(ignore|disregard|forget)\b(\W+\w+){0,3}\W+(instructions?|rules|prompt)"
+    r"|\b(zignoruj|ignoruj|pomiń|zapomnij)\b(\W+\w+){0,3}\W+(instrukcj\w*|polece\w*|zasad\w*|regu\w*)"
+    r"|system prompt|prompt\w* systemow\w*|developer mode|tryb\w* (deweloper|programist)\w*"
+    r"|jesteś teraz|you are now|\bact as\b"
+    r"|(uwaga|instrukcja|polecenie|wiadomość) dla (modelu|ai|asystenta|czatu|bota|sztucznej inteligencji)"
+    r"|\basystencie\b|\bassistant:|\bsystem:"
+    r"|(odpowiedz|answer|respond|oceń|uznaj)\W+(\w+\W+){0,3}(potwierdzon\w*|prawdziw\w*|true|confirmed)"
+    r"|(klucz\w* api|api keys?))",
     re.IGNORECASE,
 )
 

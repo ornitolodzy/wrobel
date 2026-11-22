@@ -5,7 +5,7 @@ DC      := $(COMPOSE)
 S       ?=
 
 .PHONY: help up start down clean ps logs build config dev-backend dev-frontend seed-dump seed-dump-all graph-up graph-seed-dump graph-sync \
-        test test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord test-frontend
+        test test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord test-frontend eval-e2e
 
 help: ## lista celów
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -64,6 +64,9 @@ seed-dump-all: ## spójne seedy: najpierw graf zgodny ze scraperem (lag = 0), po
 	python3 ContextGraph/scripts/sync_from_scraper.py --graph http://127.0.0.1:8100
 	$(MAKE) seed-dump
 	$(MAKE) graph-seed-dump
+
+eval-e2e: ## mierniki z sekcji 6 zadania na działającym stacku (WWW + Discord), raport w eval/results/
+	python eval/run_e2e.py --project "$(or $(COMPOSE_PROJECT_NAME),wrobel)" $(ARGS)
 
 test: test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord ## testy wszystkich serwisów Pythona
 

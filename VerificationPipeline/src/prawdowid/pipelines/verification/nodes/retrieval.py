@@ -12,6 +12,10 @@ from prawdowid.models import ClaimEvidence, Evidence, Query
 from prawdowid.retrieval import get_retriever
 
 
+class RetrievalUnavailable(RuntimeError):
+    """The corpus could not be searched (database, graph or embeddings down)."""
+
+
 def rrf_merge(rankings: list[list[str]], k: int = 60) -> list[str]:
     """Reciprocal Rank Fusion of several ranked id lists."""
     scores: dict[str, float] = defaultdict(float)
@@ -58,10 +62,13 @@ def retrieve_rerank(
     for q in queries:
         try:
             found = get_retriever(params).search(q, params)
-        except Exception as e:  # corpus is best-effort, like web search: never fails the check
+        except Exception as e:
+            # The knowledge base could not be searched: that is a technical failure, not "no
+            # evidence". Turning it into brak_dowodow would present an outage as an abstention
+            # (task §2/§5, scenario J), so the check ends with status "error" instead.
             usage.record(role="retrieval", event="error", claim_id=q.claim_id,
                          reason=f"{type(e).__name__}: {e}")
-            found = []
+            raise RetrievalUnavailable(f"knowledge base search failed: {type(e).__name__}") from e
         ranked = sorted(found, key=lambda e: e.rerank_score, reverse=True)
         results.append(ClaimEvidence(claim_id=q.claim_id, evidence=ranked, early_stop=not ranked))
     return results

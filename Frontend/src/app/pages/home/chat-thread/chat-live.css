@@ -74,3 +74,64 @@
     animation: none;
   }
 }
+
+/* ---------- Ograniczenia odpowiedzi, tekst z OCR, usuwanie zapisu ---------- */
+.notes {
+  align-self: stretch;
+  padding: 8px 12px;
+  border-left: 3px solid var(--prawdowid-verdict-misleading);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--prawdowid-verdict-misleading-bg) 45%, transparent);
+  font-size: 14px;
+}
+
+.notes ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.ocr {
+  align-self: stretch;
+  font-size: 14px;
+}
+
+.ocr summary {
+  cursor: pointer;
+  color: var(--prawdowid-text-secondary);
+}
+
+.ocr p {
+  margin: 4px 0 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.record {
+  margin: 0;
+  font-size: var(--prawdowid-fs-meta);
+  color: var(--prawdowid-text-secondary);
+}
+
+.record button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--prawdowid-accent-main);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.record button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.case {
+  align-self: stretch;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--prawdowid-bg-footer) 55%, transparent);
+  font-size: 14px;
+}

@@ -93,6 +93,17 @@ class ErrorInfo(BaseModel):
     message: str
 
 
+class CaseInfo(BaseModel):
+    """Sprawa moderatora, do której dołączono zgłoszenie bez rozstrzygnięcia (pętla informacji).
+    `recommended` to rekomendacja przekazania, `forwarded` - faktyczne przekazanie."""
+
+    case_id: int
+    status: Literal["open", "recommended", "forwarded", "closed"]
+    reports: int
+    risk: bool = False
+    message: str
+
+
 class ModelInfo(BaseModel):
     provider: str
     name: str
@@ -162,6 +173,7 @@ class CheckResponse(BaseModel):
     pii_masked: bool = False
     error: ErrorInfo | None = None
     live_search: LiveSearchInfo | None = None
+    cases: list[CaseInfo] = Field(default_factory=list)
 
 
 class OcrResponse(BaseModel):
