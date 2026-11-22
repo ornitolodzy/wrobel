@@ -132,6 +132,10 @@ def decide(
         if other_time:
             # Scenario B: real material, wrong time. The sources confirm the event, not the claimed date.
             return verdict("wprowadzajace_w_blad", [other_time], of("supports"))
+        other_number = _number_mismatch(claim.text, of("supports"), evidence_by_id)
+        if other_number:
+            # Right topic, wrong figure (e.g. a fee of 50 GBP where the source says 20 GBP).
+            return verdict("wprowadzajace_w_blad", [other_number], of("supports"))
         return verdict(
             "potwierdzone",
             [_describe(f"{len(sup)} niezależne źródło(a) potwierdzają", of("supports"), evidence_by_id)],
@@ -287,6 +291,49 @@ def _time_mismatch(claim_text: str, used: list[Stance], by_id: dict[str, Evidenc
     when = ", ".join(sorted(set(dates))) or "innego okresu"
     return (f"Źródła potwierdzają opisane zdarzenie, ale z innego czasu: twierdzenie mówi o roku "
             f"{', '.join(sorted(years))}, a źródła pochodzą z {when}.")
+
+
+_NUMBER = re.compile(r"\d+(?:[  ]\d{3})*(?:[.,]\d+)?")
+
+
+def _numbers(text: str, loose: bool = False) -> set[str]:
+    """Numbers other than years, normalised: "9,90" -> "9.9", "20 000" -> "20000" (and its groups,
+    so "20 tys." in a claim still matches "20 000" in a source). `loose` (source side) also splits
+    "8.11" into 8 and 11, since sources write dates that way ("8 listopada" = "8.11")."""
+    out = set()
+    for m in _NUMBER.findall(text or ""):
+        groups = re.split(r"[  .,]" if loose else r"[  ]", m)
+        for raw in {m.replace(" ", "").replace(" ", ""), *groups}:
+            n = raw.replace(",", ".")
+            if "." in n:
+                n = n.rstrip("0").rstrip(".")
+            n = n.lstrip("0") or "0" if "." not in n else n
+            if not _YEAR.fullmatch(n):
+                out.add(n)
+    return out
+
+
+def _number_mismatch(claim_text: str, used: list[Stance], by_id: dict[str, Evidence]) -> str | None:
+    """The claim states a figure that none of the confirming sources contains, while those sources do
+    state figures: they confirm the topic, not the number. Checked in code because a small model
+    marks "20 GBP" as supporting "50 funtów"."""
+    claimed = _numbers(claim_text)
+    if not claimed or not used:
+        return None
+    quoted = set().union(*(_numbers(s.quote) for s in used))
+    if not quoted:
+        return None  # sources do not speak in numbers ("milion złotych"): nothing to compare
+    found = set()
+    for s in used:
+        e = by_id[s.chunk_id]
+        found |= _numbers(f"{s.quote} {e.title or ''} {e.text}", loose=True)
+        if e.published_at:  # "19 listopada" in a claim matches a notice published on 19.11
+            found |= {str(e.published_at.day), str(e.published_at.month)}
+    missing = sorted(claimed - found)
+    if not missing:
+        return None
+    return (f"Źródła dotyczą tej samej sprawy, ale podają inne liczby: twierdzenie mówi "
+            f"{', '.join(missing)}, a cytowane źródła: {', '.join(sorted(quoted))}.")
 
 
 def _describe(prefix: str, used: list[Stance], by_id: dict[str, Evidence]) -> str:
