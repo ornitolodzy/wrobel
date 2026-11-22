@@ -15,7 +15,7 @@ WARSTWA 1: dokumenty (deterministycznie, bez LLM)
 (:Document)-[:REPRINTS|CITES|CORRECTS]->(:Document)
 (:Document)-[:HAS_IMAGE]->(:Image)-[:HAS_TEXT]->(:Chunk {section:'ocr'})-[:PART_OF]->(:Document)
 (:Chunk)-[:SUPPORTS|CONTRADICTS {quote}]->(:Chunk)
-(:CorpusVersion {id, embedding_model})
+(:CorpusVersion {id, embedding_model, consistent, scraper_synced_at, scraper_updated_at_max})
 
 TWIERDZENIA SPRAWDZONE (z ClaimReview fact-checkera, bez LLM; claims.py)
 (:Document)-[:CHECKS]->(:CheckedClaim {text, rating, rating_raw, embedding})
@@ -37,7 +37,7 @@ ODCZYT
 | Węzeł | Klucz | Pola |
 |---|---|---|
 | `Source` | `id` = hash(domena + wydawca) | `publisher`, `domain`, `type` (primary / factcheck / secondary / web), `catalog_type` (typ ze scrapera), `catalog_ids`, `license` |
-| `Document` | `id` = sha1(kanoniczny URL)[:16] | `url`, `title`, `published_at`, `fetched_at`, `dup_group`, `rating`, `language`, `text_hash` (do przedruków), `scraper_hash`, `source_type`, `catalog_type`, `catalog_id`, `license`; `stub: true`, gdy znamy tylko link |
+| `Document` | `id` = sha1(kanoniczny URL)[:16] | `scraper_revision` (rewizja z PageScrappera, do rekoncyliacji), `url`, `title`, `published_at`, `fetched_at`, `dup_group`, `rating`, `language`, `text_hash` (do przedruków), `scraper_hash`, `source_type`, `catalog_type`, `catalog_id`, `license`; `stub: true`, gdy znamy tylko link |
 | `Chunk` | `<dokument>:<n>`, `:h` nagłówek, `:r` ocena | `text` (dosłownie), `section` (tresc / naglowek / ocena / ocr), `position`, `embedding` (bge-m3, 1024), `embedding_model`, `embedded_at` |
 | `Entity` | `key` | `name`, `type`; daty: `date:RRRR-MM-DD`, `year`, `month_day` |
 | `Event` | hash(fragment + akcja + data) | `action`, `kind` (fact / statement / plan / opinion), `date_text`, `date_inferred`, `model` |

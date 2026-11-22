@@ -133,3 +133,12 @@ def test_retrieval_metrics_and_calibration():
     cal = calibrate_threshold(rows, current=0.3)
     assert cal["current_accuracy"] == 0.75 and cal["suggested_accuracy"] == 1.0
     assert 0.45 < cal["suggested_rerank_min"] <= 0.5
+
+
+def test_eval_compares_urls_in_canonical_form():
+    from prawdowid.pipelines.eval.nodes import url_key
+
+    # The graph stores canonical URLs; the cases keep them as published (trailing slash, host case).
+    assert url_key("https://Demagog.org.pl/fake_news/x/") == url_key("https://demagog.org.pl/fake_news/x")
+    assert url_key("https://konkret24.tvn24.pl/a-st1?source=rss#top") == "https://konkret24.tvn24.pl/a-st1?source=rss"
+    assert url_key("https://a.example/") == "https://a.example/"

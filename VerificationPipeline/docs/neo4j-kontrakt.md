@@ -10,7 +10,7 @@ w `retrieval.neo4j.queries` (conf), byle zwracały kolumny opisane niżej.
 (:Document {id, url, title, published_at, fetched_at, dup_group, rating?})-[:PUBLISHED_BY]->(:Source)
 (:Chunk    {id, text, position, section?, embedding})-[:PART_OF]->(:Document)
 (:Document)-[:CITES]->(:Document)                  fact-checker -> materiał, który sprawdzał
-(:CorpusVersion {id, embedding_model})              opcjonalnie: wersja i model embeddingów
+(:CorpusVersion {id, embedding_model, consistent?}) opcjonalnie: wersja i model embeddingów
 ```
 | Pole | Wymagane | Znaczenie |
 |---|---|---|
@@ -24,7 +24,7 @@ w `retrieval.neo4j.queries` (conf), byle zwracały kolumny opisane niżej.
 | `Document.rating` | nie | dla fact-checków: etykieta werdyktu dokładnie jak na stronie („Fałsz”) |
 | `Source.type` | tak | waga źródła w polityce werdyktu; nieznany wydawca → `web` (nie rozstrzyga sam) |
 | `CITES` | nie | łańcuch źródeł: fact-checker → źródło pierwotne (nagłówek w odpowiedzi) |
-| `CorpusVersion` | nie | jeśli jest, sprawdzamy zgodność modelu embeddingów i zapisujemy wersję w trace |
+| `CorpusVersion` | nie | jeśli jest, sprawdzamy zgodność modelu embeddingów i zapisujemy wersję w trace; `consistent = false` (przeliczanie wektorów po zmianie modelu) traktujemy jak niezgodny model |
 
 ## Indeksy
 ```cypher

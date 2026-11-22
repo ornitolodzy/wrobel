@@ -7,6 +7,7 @@ import json
 import statistics
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from prawdowid.runtime import PROJECT_ROOT, _env_overrides, verify
 
@@ -75,6 +76,13 @@ def load_retrieval_cases(eval_params: dict) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def url_key(url: str) -> str:
+    """Comparable form of a URL: the knowledge graph stores canonical URLs (lowercase host, no
+    trailing slash, no fragment), the cases keep them as published. Query strings are kept."""
+    parts = urlsplit(url.strip())
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/") or "/", parts.query, ""))
+
+
 def first_relevant_rank(urls: list[str], relevant: list[str]) -> int | None:
     for i, u in enumerate(urls, start=1):
         if u in relevant:
@@ -124,14 +132,19 @@ def _eval_query(q, parameters: dict, relevant: list[str]) -> dict:
     from prawdowid.pipelines.verification.nodes.retrieval import retrieve_rerank
 
     corpus = retrieve_rerank([q], parameters["retrieval"], parameters["embeddings"])
-    raw = list(dict.fromkeys(e.url for e in corpus[0].evidence))
+    raw = list(dict.fromkeys(url_key(e.url) for e in corpus[0].evidence))
     final = select_context(corpus, [q], parameters["retrieval"], parameters.get("reranker"))
     final_ev = [e for e in final[0].evidence if e.section == "tresc"]  # rerank order, after threshold
-    final_urls = list(dict.fromkeys(e.url for e in final_ev))
-    reranked = {}  # every scored candidate (kept or dropped) with its final relevance score
+    final_urls = list(dict.fromkeys(url_key(e.url) for e in final_ev))
+    # Every scored candidate (kept or dropped) with its final relevance score. Only page text: graph
+    # context (fact-checker rating "Fałsz", cited headline) is not reranked and keeps its parent's
+    # raw score, so counting it would make every negative look like it has evidence.
+    reranked = {}
     for e in corpus[0].evidence:
-        reranked[e.url] = max(reranked.get(e.url, -1.0), e.rerank_score)
-    hit = next((e for e in corpus[0].evidence if e.url in relevant), None)
+        if e.section != "tresc":
+            continue
+        reranked[url_key(e.url)] = max(reranked.get(url_key(e.url), -1.0), e.rerank_score)
+    hit = next((e for e in corpus[0].evidence if url_key(e.url) in relevant), None)
     return {
         "claim": q.dense,
         "rank_retrieval": first_relevant_rank(raw, relevant),
@@ -155,8 +168,9 @@ def run_retrieval_cases(cases: list[dict], parameters: dict) -> list[dict]:
     rows = []
     for case in cases:
         relevant = case.get("relevant_urls", [])
+        keys = [url_key(u) for u in relevant]
         claims = _claims_for(case, parameters)
-        per_claim = [_eval_query(q, parameters, relevant) for q in build_queries(claims)]
+        per_claim = [_eval_query(q, parameters, keys) for q in build_queries(claims)]
         if not per_claim:  # LLM found nothing to check
             per_claim = [{"claim": None, "rank_retrieval": None, "rank_final": None,
                           "relevant_found_by": None, "relevant_score": None, "best_score": None,
@@ -167,7 +181,7 @@ def run_retrieval_cases(cases: list[dict], parameters: dict) -> list[dict]:
             "id": case["id"], "kind": case.get("kind"), "input": case.get("input", case.get("claim")),
             "claims": [r["claim"] for r in per_claim], "relevant_urls": relevant,
             "first_relevant_rank": rank, "final_rank": best["rank_final"],
-            "recall@10": round(recall_at_k(best["raw"], relevant, 10), 3) if relevant else None,
+            "recall@10": round(recall_at_k(best["raw"], keys, 10), 3) if relevant else None,
             "reciprocal_rank": round(1 / rank, 3) if rank else 0.0,
             "relevant_found_by": best["relevant_found_by"],
             "relevant_score": best["relevant_score"],

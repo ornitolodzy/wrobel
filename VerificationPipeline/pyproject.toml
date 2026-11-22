@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-llm = ["litellm>=1.110"]
+llm = ["litellm>=1.110", "tenacity>=8"]  # tenacity: LiteLLM needs it for num_retries (litellm_provider.py)
 retrieval = [
     "neo4j>=5.20",
     "psycopg[binary]>=3.2",

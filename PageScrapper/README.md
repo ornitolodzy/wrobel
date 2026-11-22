@@ -119,14 +119,19 @@ Source `govpl-wyszukiwarka` (adapter `live_only`) exists only for live search an
 
 ## Sending documents to RAG
 
-Set `RAG_INGEST_URL` and every new or changed document is POSTed there as:
+Set `RAG_INGEST_URLS` (comma-separated; `RAG_INGEST_URL` still works) and every new or changed document is
+POSTed to each receiver as:
 
 ```json
 {"url": "...", "source_id": "rcb-komunikaty", "source_type": "official", "title": "...", "publisher": "...",
- "published_at": "2026-11-20", "retrieved_at": "...", "language": "pl", "text": "...", "content_hash": "..."}
+ "published_at": "2026-11-20", "retrieved_at": "...", "language": "pl", "text": "...", "content_hash": "...",
+ "claims": [...], "revision": 3}
 ```
 
-The RAG service can also just read the `documents` table or `GET /documents`.
+`revision` grows on every stored change (text or metadata such as ClaimReview). Push is the fast path only: a
+receiver that missed a document catches up from `GET /documents/revisions` (`{id, url, revision, updated_at}` of
+every document). ContextGraph does this on its own (`POST /sync/reconcile`). A receiver that answers with
+`unembedded > 0` (stored without vectors) counts as not accepted, so live search reports `ingested: false`.
 
 ## How it behaves
 

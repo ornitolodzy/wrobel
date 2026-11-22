@@ -21,11 +21,24 @@ Graf ma dwie warstwy ([docs/graph-model.md](docs/graph-model.md)):
 
 ```bash
 docker compose up -d --build                 # Neo4j 5.26 + API na 127.0.0.1:8100, Browser: http://localhost:7474
-python scripts/sync_from_scraper.py \
-  --scraper http://127.0.0.1:8002 --graph http://127.0.0.1:8100   # jednorazowo: wszystko, co scraper już ma
+python3 scripts/sync_from_scraper.py --graph http://127.0.0.1:8100   # rekoncyliacja ze scraperem (make graph-sync)
 ```
 
-Nowe dokumenty scraper wysyła sam: w jego `.env` `RAG_INGEST_URL=http://host.docker.internal:8100/ingest/document`.
+## Synchronizacja z PageScrapperem (źródło prawdy)
+
+Tabela `documents` PageScrappera jest źródłem prawdy, graf jest indeksem pochodnym. Dwie drogi:
+
+1. **Push (szybka ścieżka):** scraper wysyła każdy zapisany dokument na `RAG_INGEST_URLS` (tu `/ingest/document`),
+   razem z `revision`. Odpowiedź ma `unembedded`: liczbę węzłów dokumentu bez wektora; scraper uznaje push za
+   przyjęty tylko przy `unembedded = 0` (ważne dla live-search, które od razu weryfikuje ponownie).
+2. **Rekoncyliacja (gwarancja):** `POST /sync/reconcile` (co `RECONCILE_INTERVAL_MINUTES` i na żądanie) pobiera
+   `GET /documents/revisions` ze scrapera (`SCRAPER_URL`), porównuje z `Document.scraper_revision`, dosyła
+   brakujące i nieaktualne dokumenty i dolicza brakujące wektory. Sieroty (dokumenty w grafie, których scraper nie ma)
+   są tylko raportowane. `lag = 0` oznacza zgodność; wtedy `CorpusVersion` dostaje `scraper_synced_at`.
+
+Zapis starszej rewizji niż zapisana jest ignorowany (`skipped: true`), więc spóźniony push nie nadpisze nowszej
+wersji. Zmiana modelu embeddingów przelicza też wektory ze starego modelu; do końca przeliczania
+`CorpusVersion.consistent = false` i pipeline nie korzysta z grafu (nie miesza dwóch przestrzeni wektorów).
 
 Bez Dockera:
 
@@ -77,7 +90,9 @@ powstaje dopiero przy pierwszym embeddingu, bo pipeline odrzuca graf z innym mod
 | `POST /ingest/document` | dokument z PageScrappera: `{url, text, title, publisher, source_id, source_type, published_at, retrieved_at, language, content_hash, links[], corrects[], rating, license, claims[]}`; `claims` = twierdzenia z ClaimReview → `CheckedClaim` ([docs/graph-model.md](docs/graph-model.md)) |
 | `POST /ingest/page` | starsza nazwa tego samego |
 | `POST /ingest/image` | wynik OCR: `{image_id, path, ocr_text, page_url}` |
-| `POST /embeddings/backfill` | liczy brakujące embeddingi fragmentów i twierdzeń sprawdzonych (`?limit=`) |
+| `POST /embeddings/backfill` | liczy brakujące embeddingi fragmentów i twierdzeń sprawdzonych, także po zmianie modelu (`?limit=`) |
+| `POST /sync/reconcile` | rekoncyliacja ze scraperem (`?dry_run=true`: tylko raport różnic) |
+| `GET /sync/status` | wynik ostatniej rekoncyliacji (`lag`, `missing`, `stale`, `orphans`, `unembedded_*`) |
 | `POST /events/extract` | warstwa 2: zdarzenia z kolejnych fragmentów (`?limit=`) |
 | `POST /relations` | `SUPPORTS` / `CONTRADICTS` (fragment→fragment) lub `CORRECTS` / `CITES` / `REPRINTS` (dokument→dokument), z dosłownym `quote` |
 | `POST /context` | odczyt kontekstu: `{text, entities[], hops: 1-3, limit, save}` → fragmenty ze ścieżkami + zdarzenia |
@@ -102,7 +117,7 @@ NEO4J_TEST_URI=bolt://localhost:7687 .venv/bin/pytest         # + integracja; UW
 ```
 
 `tests/test_contract.py` uruchamia na grafie dokładnie te zapytania Cypher, których używa VerificationPipeline
-(`src/prawdowid/retrieval/neo4j.py`). Po integracji załaduj dane ponownie (`scripts/sync_from_scraper.py`).
+(`src/prawdowid/retrieval/neo4j.py`). Po integracji załaduj dane ponownie (`make graph-sync`).
 
 ## Struktura
 
@@ -117,7 +132,7 @@ src/context_graph/
   stats.py        GET /stats
   chunking.py, textnorm.py, schema.py, db.py, config.py, models.py, example_data.py
 scripts/
-  sync_from_scraper.py   jednorazowe przeniesienie dokumentów z PageScrappera
+  sync_from_scraper.py   wywołuje POST /sync/reconcile (logika w src/context_graph/sync.py)
   seed_example.py        fikcyjne dane demo
 ```
 
