@@ -106,43 +106,91 @@ def calibrate_threshold(rows: list[dict], current: float) -> dict:
             "positives": len(pos), "negatives": len(neg)}
 
 
-def run_retrieval_cases(cases: list[dict], parameters: dict) -> list[dict]:
-    """Retrieval only (no LLM): knowledge-base candidates -> select_context (reranker, threshold, diversity)."""
+def _claims_for(case: dict, parameters: dict) -> list:
+    """`claim`: one ready claim (retrieval only). `input`: raw text as a user would paste it;
+    claims are extracted by the configured LLM first, exactly as in production (end-to-end)."""
     from prawdowid.models import Claim
-    from prawdowid.pipelines.verification.nodes.queries import build_queries
-    from prawdowid.pipelines.verification.nodes.retrieval import retrieve_rerank
+    from prawdowid.pipelines.verification.nodes.claims import extract_claims
+    from prawdowid.pipelines.verification.nodes.normalize import normalize
+
+    if "input" not in case:
+        return [Claim(id="c1", text=case["claim"], type="factual")]
+    claims = extract_claims(normalize(case["input"], "eval"), parameters["llm"])
+    return [c for c in claims if c.type == "factual"]
+
+
+def _eval_query(q, parameters: dict, relevant: list[str]) -> dict:
     from prawdowid.pipelines.verification.nodes.context import select_context
+    from prawdowid.pipelines.verification.nodes.retrieval import retrieve_rerank
+
+    corpus = retrieve_rerank([q], parameters["retrieval"], parameters["embeddings"])
+    raw = list(dict.fromkeys(e.url for e in corpus[0].evidence))
+    final = select_context(corpus, [q], parameters["retrieval"], parameters.get("reranker"))
+    final_ev = [e for e in final[0].evidence if e.section == "tresc"]  # rerank order, after threshold
+    final_urls = list(dict.fromkeys(e.url for e in final_ev))
+    reranked = {}  # every scored candidate (kept or dropped) with its final relevance score
+    for e in corpus[0].evidence:
+        reranked[e.url] = max(reranked.get(e.url, -1.0), e.rerank_score)
+    hit = next((e for e in corpus[0].evidence if e.url in relevant), None)
+    return {
+        "claim": q.dense,
+        "rank_retrieval": first_relevant_rank(raw, relevant),
+        "rank_final": first_relevant_rank(final_urls, relevant),
+        "relevant_found_by": hit.retrieval.found_by if hit and hit.retrieval else None,
+        "relevant_score": max((s for u, s in reranked.items() if u in relevant), default=None),
+        "best_score": max(reranked.values(), default=None),
+        "relevant_in_final_context": any(u in relevant for u in final_urls),
+        "raw": raw,
+    }
+
+
+def run_retrieval_cases(cases: list[dict], parameters: dict) -> list[dict]:
+    """Knowledge-base candidates -> select_context (reranker, threshold, diversity), per case.
+    With several extracted claims, the claim that finds the relevant source best counts."""
+    from prawdowid.pipelines.verification.nodes.queries import build_queries
 
     parameters = _deployed(parameters)
     if not cases or parameters["retrieval"].get("backend", "mock") == "mock":
         return []
     rows = []
     for case in cases:
-        q = build_queries([Claim(id="c1", text=case["claim"], type="factual")])[0]
-        corpus = retrieve_rerank([q], parameters["retrieval"], parameters["embeddings"])
-        raw = list(dict.fromkeys(e.url for e in corpus[0].evidence))
-        final = select_context(corpus, [q], parameters["retrieval"], parameters.get("reranker"))
-        final_ev = [e for e in final[0].evidence if e.section == "tresc"]
         relevant = case.get("relevant_urls", [])
-        scores = {e.url: e.rerank_score for e in sorted(final_ev, key=lambda e: e.rerank_score)}
-        raw_scores = {}
-        for e in corpus[0].evidence:
-            raw_scores.setdefault(e.url, e.rerank_score)
-        rank = first_relevant_rank(raw, relevant)
-        hit = next((e for e in corpus[0].evidence if e.url in relevant), None)
+        claims = _claims_for(case, parameters)
+        per_claim = [_eval_query(q, parameters, relevant) for q in build_queries(claims)]
+        if not per_claim:  # LLM found nothing to check
+            per_claim = [{"claim": None, "rank_retrieval": None, "rank_final": None,
+                          "relevant_found_by": None, "relevant_score": None, "best_score": None,
+                          "relevant_in_final_context": False, "raw": []}]
+        best = min(per_claim, key=lambda r: (r["rank_final"] or 999, r["rank_retrieval"] or 999))
+        rank = best["rank_retrieval"]
         rows.append({
-            "id": case["id"], "claim": case["claim"], "relevant_urls": relevant,
-            "first_relevant_rank": rank,
-            "recall@10": round(recall_at_k(raw, relevant, 10), 3) if relevant else None,
+            "id": case["id"], "kind": case.get("kind"), "input": case.get("input", case.get("claim")),
+            "claims": [r["claim"] for r in per_claim], "relevant_urls": relevant,
+            "first_relevant_rank": rank, "final_rank": best["rank_final"],
+            "recall@10": round(recall_at_k(best["raw"], relevant, 10), 3) if relevant else None,
             "reciprocal_rank": round(1 / rank, 3) if rank else 0.0,
-            "relevant_found_by": hit.retrieval.found_by if hit and hit.retrieval else None,
-            "relevant_score": max((s for u, s in {**raw_scores, **scores}.items() if u in relevant),
-                                  default=None),
-            "best_score": max([e.rerank_score for e in final_ev] + [e.rerank_score for e in corpus[0].evidence],
-                              default=None),
-            "relevant_in_final_context": any(e.url in relevant for e in final_ev),
+            "relevant_found_by": best["relevant_found_by"],
+            "relevant_score": best["relevant_score"],
+            "best_score": max((r["best_score"] for r in per_claim if r["best_score"] is not None), default=None),
+            "relevant_in_final_context": best["relevant_in_final_context"],
         })
     return rows
+
+
+def _wilson(k: int, n: int, z: float = 1.96) -> list[float] | None:
+    """95% Wilson interval: with 29/29 the honest statement is 'at least ~0.88', not 'exactly 1.0'."""
+    if not n:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return [round(c - h, 3), round(c + h, 3)]
+
+
+def _at(rows: list[dict], key: str, k: int) -> dict:
+    hits = sum(1 for r in rows if r[key] is not None and r[key] <= k)
+    return {"value": round(hits / len(rows), 3), "ci95": _wilson(hits, len(rows))}
 
 
 def retrieval_report(rows: list[dict], parameters: dict) -> dict:
@@ -150,14 +198,26 @@ def retrieval_report(rows: list[dict], parameters: dict) -> dict:
     if not rows:
         return {"note": "retrieval eval skipped (no cases or retrieval.backend == mock)"}
     pos = [r for r in rows if r["relevant_urls"]]
+    neg = [r for r in rows if not r["relevant_urls"]]
+    rr = parameters.get("reranker") or {}
+    t = parameters["retrieval"]["rerank_min"]
     return {
-        "cases": len(rows), "positives": len(pos),
+        "cases": len(rows), "positives": len(pos), "negatives": len(neg),
         "embedding_model": f"{parameters['embeddings'].get('provider')}:{parameters['embeddings'].get('model')}",
-        "reranker": bool((parameters.get("reranker") or {}).get("enabled")),
-        "recall@10": round(sum(r["recall@10"] for r in pos) / len(pos), 3) if pos else None,
+        "reranker": bool(rr.get("enabled")), "reranker_provider": rr.get("provider", "local"),
+        "rerank_min": t,
+        # retrieval (bge-m3 + full-text, RRF): is the source among the candidates at all?
+        "recall@1": _at(pos, "first_relevant_rank", 1) if pos else None,
+        "recall@3": _at(pos, "first_relevant_rank", 3) if pos else None,
+        "recall@10": _at(pos, "first_relevant_rank", 10) if pos else None,
         "mrr": round(sum(r["reciprocal_rank"] for r in pos) / len(pos), 3) if pos else None,
-        "relevant_in_final_context": round(sum(r["relevant_in_final_context"] for r in pos) / len(pos), 3) if pos else None,
-        "threshold": calibrate_threshold(rows, parameters["retrieval"]["rerank_min"]),
+        # after reranker + threshold + diversity: what the LLM actually sees
+        "final@1": _at(pos, "final_rank", 1) if pos else None,
+        "relevant_in_final_context": _at(pos, "final_rank", 10_000) if pos else None,
+        "negatives_rejected": ({"value": round(sum((r["best_score"] or 0) < t for r in neg) / len(neg), 3),
+                                "ci95": _wilson(sum((r["best_score"] or 0) < t for r in neg), len(neg))}
+                               if neg else None),
+        "threshold": calibrate_threshold(rows, t),
         "rows": rows,
     }
 
