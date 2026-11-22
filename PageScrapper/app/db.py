@@ -93,7 +93,12 @@ class Database:
             existing = (await s.execute(select(Document).where(Document.url == doc.url))).scalar_one_or_none()
             digest = doc.content_hash
             if existing is not None and existing.content_hash == digest:
-                return "unchanged", existing
+                # Same text, new metadata (e.g. ClaimReview added later): store and resend it.
+                if (existing.extra or None) == (doc.extra or None):
+                    return "unchanged", existing
+                existing.extra = doc.extra or None
+                await s.commit()
+                return "updated", existing
             target = existing or Document(url=doc.url)
             target.source_id = doc.source_id
             target.source_type = doc.source_type

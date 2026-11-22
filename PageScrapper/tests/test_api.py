@@ -182,3 +182,25 @@ def test_js_app_with_seo_text_is_rendered(make_client) -> None:
         body = c.post("/scrape", json={"url": url}).json()
         assert renderer.calls == [url]
         assert body["rendered"] is True
+
+
+def test_rag_forwarding_carries_claim_reviews(make_client) -> None:
+    sent: list[dict] = []
+    base = site_handler({
+        "https://demagog.org.pl/fake_news/fake-1/": fx.html(
+            fx.fact_check_article("To nie jest prawdziwe zdjęcie", "2026-11-20", fx.CLAIM_REVIEW_GRAPH)),
+    })
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == "http://rag:8004/ingest":
+            sent.append(json.loads(request.content))
+            return httpx.Response(200, json={"ok": True})
+        return base(request)
+
+    with make_client(handler, rag_ingest_url="http://rag:8004/ingest") as c:
+        wait_for_run(c, c.post("/scrap/all", json={"source_ids": ["demagog-fake-news"]}).json()["run_id"])
+        by_url = {d["url"]: d for d in sent}
+        [claim] = by_url["https://demagog.org.pl/fake_news/fake-1/"]["claims"]
+        assert claim["text"] == "Niemieckie radiowozy jadą do Warszawy."
+        assert claim["rating"] == "fałsz"
+        assert by_url["https://demagog.org.pl/fake_news/fake-2/"]["claims"] == []  # page failed: RSS text only

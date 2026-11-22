@@ -19,6 +19,7 @@ from urllib.parse import urlsplit, urlunsplit
 from neo4j import ManagedTransaction
 
 from context_graph.chunking import chunk_text
+from context_graph.claims import claim_rows, write_claims
 from context_graph.config import Settings
 from context_graph.db import Graph
 from context_graph.embeddings import Embedder, EmbeddingError
@@ -193,50 +194,83 @@ def _write_chunks(
 # --------------------------------------------------------------------------- embeddings
 
 
-PENDING = """
-MATCH (c:Chunk) WHERE c.embedding IS NULL AND ($ids IS NULL OR c.id IN $ids)
-RETURN c.id AS id, c.text AS text ORDER BY c.id LIMIT $limit
-"""
+EMBEDDED_LABELS = ("Chunk", "CheckedClaim")  # both embedded by the same model as the queries
+
+
+def _remaining(graph: Graph, label: str) -> int:
+    return graph.read(f"MATCH (c:{label}) WHERE c.embedding IS NULL RETURN count(c) AS n")[0]["n"]
+
+
+def _embed_label(
+    graph: Graph, embedder: Embedder, label: str, ids: list[str] | None, limit: int
+) -> tuple[int, str | None]:
+    """Embed `text` of nodes without a vector (`ids` None = any). -> (embedded, error)."""
+    if limit <= 0:
+        return 0, None
+    rows = graph.read(
+        f"""
+        MATCH (c:{label}) WHERE c.embedding IS NULL AND ($ids IS NULL OR c.id IN $ids)
+        RETURN c.id AS id, c.text AS text ORDER BY c.id LIMIT $limit
+        """,
+        ids=ids,
+        limit=limit,
+    )
+    if not rows:
+        return 0, None
+    try:
+        vectors = embedder.embed([r["text"] for r in rows])
+    except EmbeddingError as exc:
+        logger.warning("Embedding %s failed: %s", label, exc)
+        return 0, str(exc)
+    graph.write(
+        f"""
+        UNWIND $rows AS row
+        MATCH (c:{label} {{id: row.id}})
+        CALL db.create.setNodeVectorProperty(c, 'embedding', row.vec)
+        SET c.embedded_at = datetime(), c.embedding_model = $model
+        """,
+        rows=[{"id": r["id"], "vec": v} for r, v in zip(rows, vectors, strict=True)],
+        model=embedder.model,
+    )
+    graph.write(
+        """
+        MERGE (v:CorpusVersion {id: $id})
+          ON CREATE SET v.created_at = datetime()
+        SET v.embedding_model = $model, v.updated_at = datetime()
+        """,
+        id=CORPUS_VERSION_ID,
+        model=embedder.model,
+    )
+    return len(vectors), None
 
 
 def embed_pending(
-    graph: Graph, embedder: Embedder, ids: list[str] | None = None, limit: int = 500
+    graph: Graph,
+    embedder: Embedder,
+    ids: list[str] | None = None,
+    limit: int = 500,
+    claim_ids: list[str] | None = None,
 ) -> EmbeddingBackfillResult:
+    """Chunks first, then checked claims, `limit` in total. `ids` / `claim_ids`: None = any pending,
+    [] = none of that label."""
     if embedder.model is None:
-        remaining = graph.read("MATCH (c:Chunk) WHERE c.embedding IS NULL RETURN count(c) AS n")[0]["n"]
-        return EmbeddingBackfillResult(embedded=0, remaining=remaining, model=None, error="embeddings disabled")
-    rows = graph.read(PENDING, ids=ids, limit=limit)
-    error = None
-    embedded = 0
-    if rows:
-        try:
-            vectors = embedder.embed([r["text"] for r in rows])
-        except EmbeddingError as exc:
-            logger.warning("Embedding failed: %s", exc)
-            vectors, error = [], str(exc)
-        if vectors:
-            graph.write(
-                """
-                UNWIND $rows AS row
-                MATCH (c:Chunk {id: row.id})
-                CALL db.create.setNodeVectorProperty(c, 'embedding', row.vec)
-                SET c.embedded_at = datetime(), c.embedding_model = $model
-                """,
-                rows=[{"id": r["id"], "vec": v} for r, v in zip(rows, vectors, strict=True)],
-                model=embedder.model,
-            )
-            graph.write(
-                """
-                MERGE (v:CorpusVersion {id: $id})
-                  ON CREATE SET v.created_at = datetime()
-                SET v.embedding_model = $model, v.updated_at = datetime()
-                """,
-                id=CORPUS_VERSION_ID,
-                model=embedder.model,
-            )
-            embedded = len(vectors)
-    remaining = graph.read("MATCH (c:Chunk) WHERE c.embedding IS NULL RETURN count(c) AS n")[0]["n"]
-    return EmbeddingBackfillResult(embedded=embedded, remaining=remaining, model=embedder.model, error=error)
+        return EmbeddingBackfillResult(
+            embedded=0,
+            remaining=_remaining(graph, "Chunk"),
+            claims_remaining=_remaining(graph, "CheckedClaim"),
+            model=None,
+            error="embeddings disabled",
+        )
+    embedded, error = _embed_label(graph, embedder, "Chunk", ids, limit)
+    claims_embedded, claims_error = _embed_label(graph, embedder, "CheckedClaim", claim_ids, limit - embedded)
+    return EmbeddingBackfillResult(
+        embedded=embedded,
+        remaining=_remaining(graph, "Chunk"),
+        claims_embedded=claims_embedded,
+        claims_remaining=_remaining(graph, "CheckedClaim"),
+        model=embedder.model,
+        error=error or claims_error,
+    )
 
 
 # --------------------------------------------------------------------------- documents
@@ -255,11 +289,14 @@ def upsert_document(
     publisher = (doc.publisher or "").strip() or domain
     published = _utc(doc.published_at)
     text_hash = content_hash(doc.text)
+    # The fact-checker's own label: from the page, else from its ClaimReview (fills Document.rating,
+    # which the Verification Pipeline already reads for fact-checks).
+    rating = doc.rating or next((c.rating for c in doc.claims if c.rating), None)
     parts: list[tuple[str, str]] = []
     if doc.title:
         parts.append(("naglowek", doc.title))
-    if doc.rating:
-        parts.append(("ocena", doc.rating))
+    if rating:
+        parts.append(("ocena", rating))
     parts.append(("tresc", doc.text))
     ref_date = published.date() if published else None
     chunks, next_pairs, mentions, pairs = _build_chunks(did, parts, settings.chunk_max_chars, extractor, ref_date)
@@ -306,11 +343,11 @@ def upsert_document(
             text_hash=text_hash,
             scraper_hash=doc.content_hash,
             language=doc.language,
-            rating=doc.rating,
+            rating=rating,
         )
         _write_chunks(tx, "Document", did, chunks, next_pairs, mentions, pairs, method="regex")
 
-        counts: dict[str, int] = {}
+        counts: dict[str, int] = write_claims(tx, did, doc.claims)
         for rel, rows, method in (("CITES", cites, "link"), ("CORRECTS", corrects, "declared")):
             res = tx.run(
                 f"""
@@ -369,7 +406,10 @@ def upsert_document(
     counts = graph.transaction(work)
     embedded = 0
     if embedder is not None and embedder.model is not None:
-        embedded = embed_pending(graph, embedder, ids=[c["id"] for c in chunks], limit=len(chunks)).embedded
+        claim_ids = [r["id"] for r in claim_rows(did, doc.claims)[0]]
+        embedded = embed_pending(
+            graph, embedder, ids=[c["id"] for c in chunks], limit=len(chunks) + len(claim_ids), claim_ids=claim_ids
+        ).embedded
     return IngestResult(
         id=did,
         chunks=len(chunks),
@@ -434,7 +474,8 @@ def upsert_image(
     counts = graph.transaction(work)
     embedded = 0
     if embedder is not None and embedder.model is not None:
-        embedded = embed_pending(graph, embedder, ids=[c["id"] for c in chunks], limit=len(chunks)).embedded
+        ids = [c["id"] for c in chunks]
+        embedded = embed_pending(graph, embedder, ids=ids, limit=len(chunks), claim_ids=[]).embedded
     return IngestResult(
         id=iid,
         chunks=len(chunks),

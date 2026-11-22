@@ -7,7 +7,9 @@ import httpx
 import pytest
 
 from app.catalog import SourceConfig, load_catalog
+from app.claimreview import extract_claim_reviews
 from app.config import Settings
+from app.db import Database, DocumentIn
 from app.extract import parse_date
 from app.fetch import FetchError, Fetcher, assert_public_url
 from app.sources.google_factcheck import review_to_document
@@ -188,3 +190,58 @@ def test_js_shell_detection() -> None:
     assert looks_like_js_shell('<html><body><div id="root"></div><script src="a.js"></script></body></html>')
     assert looks_like_js_shell("<html><body><app-root></app-root></body></html>")
     assert not looks_like_js_shell("<html><body><main>" + "Treść artykułu. " * 40 + "</main></body></html>")
+
+
+def test_claim_review_graph_form() -> None:
+    [review] = extract_claim_reviews(f"<html><head>{fx.CLAIM_REVIEW_GRAPH}</head></html>")
+    assert review == {
+        "text": "Niemieckie radiowozy jadą do Warszawy.",
+        "claimant": "Użytkownicy Facebooka",
+        "claimant_type": "Person",
+        "appearances": ["https://www.facebook.com/reel/1", "https://www.facebook.com/reel/2"],
+        "rating": "fałsz",
+        "claim_date": "2026-10-31",
+        "review_date": "2026-11-02",
+        "origin": "claimreview",
+    }
+
+
+def test_claim_review_single_object_skips_broken_and_empty() -> None:
+    reviews = extract_claim_reviews(f"<html><head>{fx.CLAIM_REVIEW_SINGLE}</head></html>")
+    assert len(reviews) == 1  # invalid JSON and a review without claimReviewed are ignored
+    assert reviews[0]["claimant"] == "Sputnik"
+    assert reviews[0]["claimant_type"] == "Organization"
+    assert reviews[0]["appearances"] == ["https://archive.ph/abc"]
+    assert reviews[0]["rating"] == "Manipulacja"
+    assert reviews[0]["claim_date"] is None
+
+
+def test_page_without_claim_review() -> None:
+    assert extract_claim_reviews(fx.generic_article("Zwykły artykuł", "2026-11-20")) == []
+
+
+def test_google_review_carries_claim_review() -> None:
+    claim = fx.GOOGLE_RESPONSE["claims"][0]
+    doc = review_to_document(claim, claim["claimReview"][0], "Ukraina", "google-factcheck", "fact_check")
+    [review] = doc.extra["claim_reviews"]
+    assert review["text"] == "Polska wysłała wojsko na Ukrainę"
+    assert review["claimant"] == "Konto w mediach społecznościowych"
+    assert (review["rating"], review["claim_date"], review["origin"]) == ("Fałsz", "2026-10-01", "google_factcheck")
+
+
+def test_upsert_resends_when_only_metadata_changes(tmp_path) -> None:
+    async def scenario() -> list[str]:
+        db = Database(f"sqlite+aiosqlite:///{tmp_path / 'u.db'}")
+        await db.init()
+        base = dict(url="https://demagog.org.pl/a/", source_id="d", source_type="fact_check",
+                    title="T", publisher="P", published_at=date(2026, 11, 1), text="tekst " * 50)
+        outcomes = [
+            (await db.upsert(DocumentIn(**base)))[0],
+            (await db.upsert(DocumentIn(**base)))[0],
+            (await db.upsert(DocumentIn(**base, extra={"claim_reviews": [{"text": "x"}]})))[0],
+            (await db.upsert(DocumentIn(**base, extra={"claim_reviews": [{"text": "x"}]})))[0],
+        ]
+        await db.close()
+        return outcomes
+
+    assert asyncio.run(scenario()) == ["new", "unchanged", "updated", "unchanged"]

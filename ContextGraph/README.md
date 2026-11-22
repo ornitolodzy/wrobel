@@ -74,10 +74,10 @@ powstaje dopiero przy pierwszym embeddingu, bo pipeline odrzuca graf z innym mod
 
 | Endpoint | Opis |
 |---|---|
-| `POST /ingest/document` | dokument z PageScrappera: `{url, text, title, publisher, source_id, source_type, published_at, retrieved_at, language, content_hash, links[], corrects[], rating, license}` |
+| `POST /ingest/document` | dokument z PageScrappera: `{url, text, title, publisher, source_id, source_type, published_at, retrieved_at, language, content_hash, links[], corrects[], rating, license, claims[]}`; `claims` = twierdzenia z ClaimReview → `CheckedClaim` ([docs/graph-model.md](docs/graph-model.md)) |
 | `POST /ingest/page` | starsza nazwa tego samego |
 | `POST /ingest/image` | wynik OCR: `{image_id, path, ocr_text, page_url}` |
-| `POST /embeddings/backfill` | liczy brakujące embeddingi (`?limit=`) |
+| `POST /embeddings/backfill` | liczy brakujące embeddingi fragmentów i twierdzeń sprawdzonych (`?limit=`) |
 | `POST /events/extract` | warstwa 2: zdarzenia z kolejnych fragmentów (`?limit=`) |
 | `POST /relations` | `SUPPORTS` / `CONTRADICTS` (fragment→fragment) lub `CORRECTS` / `CITES` / `REPRINTS` (dokument→dokument), z dosłownym `quote` |
 | `POST /context` | odczyt kontekstu: `{text, entities[], hops: 1-3, limit, save}` → fragmenty ze ścieżkami + zdarzenia |

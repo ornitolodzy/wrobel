@@ -189,3 +189,27 @@ MCP_CASES = {
 
 def sse(payload: dict) -> str:
     return f"event: message\ndata: {json.dumps(payload)}\n\n"
+
+
+# schema.org ClaimReview as published by Demagog (@graph form) and FakeNews.pl (single object).
+CLAIM_REVIEW_GRAPH = """<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [
+ {"@type": "WebPage", "name": "Niemiecka policja nie jedzie do Warszawy"},
+ {"@type": "ClaimReview", "claimReviewed": "Niemieckie  radiowozy jadą do Warszawy.",
+  "datePublished": "2026-11-02",
+  "itemReviewed": {"@type": "Claim", "datePublished": "2026-10-31",
+    "author": {"@type": "Person", "name": "Użytkownicy Facebooka"},
+    "appearance": [{"@type": "CreativeWork", "url": "https://www.facebook.com/reel/1"},
+                   {"@type": "CreativeWork", "url": "https://www.facebook.com/reel/2"}]},
+  "reviewRating": {"@type": "Rating", "alternateName": "fałsz"}}]}</script>"""
+
+CLAIM_REVIEW_SINGLE = """<script type="application/ld+json">{"@context": "https://schema.org",
+ "@type": ["ClaimReview"], "claimReviewed": "Robot celowo zaatakował klienta.",
+ "itemReviewed": {"@type": "Claim", "author": [{"@type": "Organization", "name": "Sputnik"}],
+   "firstAppearance": "https://archive.ph/abc"},
+ "reviewRating": {"@type": "Rating", "name": "Manipulacja"}}</script>
+<script type="application/ld+json">{"@type": "ClaimReview", "claimReviewed": "zepsuty" </script>
+<script type="application/ld+json">{"@type": "ClaimReview", "reviewRating": {"name": "Fałsz"}}</script>"""
+
+
+def fact_check_article(title: str, day: str, json_ld: str) -> str:
+    return generic_article(title, day).replace("</head>", f"{json_ld}</head>", 1)

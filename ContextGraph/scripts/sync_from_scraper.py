@@ -51,6 +51,8 @@ def main() -> int:
     with httpx.Client(timeout=120) as client:
         for doc in scraper_documents(client, args.scraper.rstrip("/"), args.page_size):
             payload = {k: doc.get(k) for k in FIELDS}
+            # ClaimReview stored by PageScrapper (extra.claim_reviews) -> CheckedClaim in the graph.
+            payload["claims"] = (doc.get("extra") or {}).get("claim_reviews") or []
             res = client.post(f"{args.graph.rstrip('/')}/ingest/document", json=payload)
             if res.status_code >= 400:
                 stats["failed"] += 1
@@ -60,6 +62,7 @@ def main() -> int:
             stats["documents"] += 1
             stats["chunks"] += body["chunks"]
             stats["embedded"] += body["embedded"]
+            stats["claims"] += body["relations"].get("CHECKS", 0)
             stats[f"source:{doc['source_id']}"] += 1
     for key, value in sorted(stats.items()):
         print(f"{key:32} {value}")

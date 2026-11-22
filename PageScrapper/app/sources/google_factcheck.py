@@ -34,6 +34,21 @@ def review_to_document(claim: dict, review: dict, query: str, source_id: str, so
             "claimant": claim.get("claimant"),
             "rating": review.get("textualRating"),
             "query": query,
+            # Same wire format as ClaimReview from pages (app/claimreview.py) -> graph CheckedClaim.
+            "claim_reviews": [
+                {
+                    "text": claim["text"].strip(),
+                    "claimant": claim.get("claimant"),
+                    "claimant_type": None,
+                    "appearances": [],
+                    "rating": review.get("textualRating"),
+                    "claim_date": (claim.get("claimDate") or "")[:10] or None,
+                    "review_date": (review.get("reviewDate") or "")[:10] or None,
+                    "origin": "google_factcheck",
+                }
+            ]
+            if (claim.get("text") or "").strip()
+            else [],
         },
     )
 

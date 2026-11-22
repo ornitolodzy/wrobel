@@ -14,13 +14,46 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 ContractSourceType = Literal["primary", "factcheck", "secondary", "web"]
 Section = Literal["tresc", "naglowek", "ocena", "ocr"]
 EntityType = Literal["PERSON", "ORG", "GPE", "LOC", "DATE", "LAW", "MISC"]
 ChunkRelation = Literal["SUPPORTS", "CONTRADICTS"]
 DocumentRelation = Literal["CORRECTS", "CITES", "REPRINTS"]
+
+
+ClaimOrigin = Literal["claimreview", "google_factcheck", "llm"]
+
+
+class ClaimIn(BaseModel):
+    """A claim checked by the fact-checker that published the document (PageScrapper `claim_reviews`).
+
+    `claimreview` / `google_factcheck`: declared by the fact-checker in schema.org ClaimReview, so the
+    claimant may become an ATTRIBUTED_TO relation. `llm`: extracted by a model, never attributed.
+    """
+
+    text: str = Field(min_length=1)
+    claimant: str | None = None
+    claimant_type: str | None = None  # schema.org @type of the author: Person / Organization
+    appearances: list[str] = Field(default_factory=list)  # where the claim circulated (posts, reels, archives)
+    rating: str | None = None  # fact-checker label as published ("fałsz", "Przerobione zdjęcie")
+    claim_date: date | None = None
+    review_date: date | None = None
+    origin: ClaimOrigin = "claimreview"
+
+    @field_validator("claim_date", "review_date", mode="before")
+    @classmethod
+    def _lenient_date(cls, value):
+        """A malformed date in third-party markup must not reject the whole document."""
+        if value in (None, ""):
+            return None
+        if isinstance(value, date):
+            return value
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError:
+            return None
 
 
 class DocumentIn(BaseModel):
@@ -41,6 +74,7 @@ class DocumentIn(BaseModel):
     links: list[str] = Field(default_factory=list)  # outgoing links -> CITES
     corrects: list[str] = Field(default_factory=list)  # urls this document corrects -> CORRECTS
     rating: str | None = None  # fact-checker label exactly as on the page ("Fałsz") -> section "ocena"
+    claims: list[ClaimIn] = Field(default_factory=list)  # -> (:Document)-[:CHECKS]->(:CheckedClaim)
 
 
 PageIn = DocumentIn
@@ -77,8 +111,10 @@ class IngestResult(BaseModel):
 
 
 class EmbeddingBackfillResult(BaseModel):
-    embedded: int
+    embedded: int  # chunks
     remaining: int
+    claims_embedded: int = 0  # CheckedClaim.text
+    claims_remaining: int = 0
     model: str | None
     error: str | None = None
 

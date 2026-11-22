@@ -17,6 +17,11 @@ WARSTWA 1: dokumenty (deterministycznie, bez LLM)
 (:Chunk)-[:SUPPORTS|CONTRADICTS {quote}]->(:Chunk)
 (:CorpusVersion {id, embedding_model})
 
+TWIERDZENIA SPRAWDZONE (z ClaimReview fact-checkera, bez LLM; claims.py)
+(:Document)-[:CHECKS]->(:CheckedClaim {text, rating, rating_raw, embedding})
+(:CheckedClaim)-[:ATTRIBUTED_TO {declared_by:'fact_checker'}]->(:Person {name, kind})
+(:CheckedClaim)-[:APPEARED_IN]->(:Appearance {url, domain})
+
 WARSTWA 2: zdarzenia (LLM, wsadowo, tylko z cytatem)
 (:Entity)-[:ACTOR {role: agent|target|other, quote}]->(:Event)-[:EVIDENCED_BY {quote}]->(:Chunk)
 (:Event)-[:ON_DATE {inferred}]->(:Entity {type:'DATE'})
@@ -38,6 +43,22 @@ ODCZYT
 | `Event` | hash(fragment + akcja + data) | `action`, `kind` (fact / statement / plan / opinion), `date_text`, `date_inferred`, `model` |
 | `Image` | `img-` + sha1(image_id) | `path`, `url` |
 | `Claim` | sha1(tekst)[:16] | `text` (zapis odczytanego kontekstu) |
+| `CheckedClaim` | sha1(dokument + tekst)[:16] | `text` (twierdzenie sprawdzone przez fact-checkera), `rating_raw` (etykieta ze strony), `rating` (falsz / manipulacja / czesciowa_prawda / nieweryfikowalne / prawda / satyra / inne), `claim_date`, `review_date`, `origin` (claimreview / google_factcheck / llm), `claimant_text`, `claimant_kind`, `embedding` (bge-m3 na samym twierdzeniu) |
+| `Person` | sha1(nazwa)[:16] | `name`, `kind` (person / account / organization); autor przypisany przez fact-checkera |
+| `Appearance` | sha1(url)[:16] | `url`, `domain`; gdzie twierdzenie krążyło (wpis, reel, archiwum) |
+
+**Twierdzenia sprawdzone.** `CheckedClaim` to co innego niż `Claim`: `Claim` zapisuje pytania użytkowników
+(`/context`), a `CheckedClaim` to twierdzenie, które fact-checker ocenił. PageScrapper czyta je ze znaczników
+schema.org `ClaimReview` (Demagog, FakeNews.pl; Konkret24 i EUvsDisinfo ich nie publikują) i z Google Fact Check API,
+i wysyła w polu `claims`. Embedding liczony jest na samym tekście twierdzenia, osobny indeks
+`checked_claim_embedding`, żeby krótki wpis z sieci trafiał w krótkie twierdzenie, a nie w chunk 1200 znaków.
+Gdy dokument nie ma własnej oceny, `Document.rating` bierze ją z ClaimReview.
+
+**Przypisanie autora tylko od fact-checkera.** `ATTRIBUTED_TO` powstaje wyłącznie, gdy autora podał fact-checker
+(`origin` claimreview / google_factcheck). Twierdzenia wyciągnięte przez LLM (`origin: llm`) nigdy nie dostają tej
+relacji. Ogólnikowi autorzy („Użytkownicy Facebooka”, „Wiele źródeł”, „Konto w mediach społecznościowych”) też nie:
+zostają jako `claimant_text` z `claimant_kind: generic`. Ponowny ingest dokumentu zastępuje jego twierdzenia
+(znikają nieaktualne, osierocone `Person` / `Appearance` są usuwane).
 
 **Źródło = domena + wydawca.** RCB i MON publikują na tej samej domenie www.gov.pl, a muszą być osobnymi
 źródłami, bo pipeline pokazuje wydawcę w odpowiedzi.
@@ -72,6 +93,9 @@ API zwraca 422, a zdarzenie z LLM jest odrzucane. Krawędź od LLM to interpreta
 | `SUPPORTS`, `CONTRADICTS` | llm / manual | argumentacja, **zawsze dociągana** (0.9) |
 | `REPRINTS` | text_hash | przedruk wskazuje oryginał; w kontekście zwijany (`dup_group`) |
 | `ACTOR`, `ON_DATE`, `IN_PLACE`, `EVIDENCED_BY` | llm | warstwa 2; zdarzenia z fragmentów kontekstu są zwracane w `/context` jako `events` |
+| `CHECKS` | claimreview / google_factcheck / llm | fact-checker → twierdzenie, które ocenił |
+| `ATTRIBUTED_TO` | claimreview / google_factcheck | twierdzenie → autor podany przez fact-checkera (`declared_by: fact_checker`) |
+| `APPEARED_IN` | claimreview | twierdzenie → miejsce, gdzie krążyło |
 
 ## Odczyt kontekstu (`POST /context`)
 
@@ -98,6 +122,12 @@ RETURN t.key, e.action, ev.quote, d.url;
 
 // kto co zrobił
 MATCH (a:Entity)-[r:ACTOR {role: 'agent'}]->(e:Event) RETURN a.name, e.action, r.quote LIMIT 50;
+
+// twierdzenia sprawdzone: ocena, autor (tylko podany przez fact-checkera) i gdzie krążyły
+MATCH (d:Document)-[:CHECKS]->(c:CheckedClaim)
+OPTIONAL MATCH (c)-[:ATTRIBUTED_TO]->(p:Person)
+OPTIONAL MATCH (c)-[:APPEARED_IN]->(a:Appearance)
+RETURN d.url, c.text, c.rating, coalesce(p.name, c.claimant_text) AS autor, collect(a.domain) AS gdzie;
 
 // przedruki i sprostowania
 MATCH (c:Document)-[:REPRINTS]->(o:Document) RETURN o.url AS oryginal, collect(c.url) AS przedruki;

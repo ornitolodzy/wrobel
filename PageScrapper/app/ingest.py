@@ -58,6 +58,9 @@ class RagClient:
             "language": doc.language,
             "text": doc.text,
             "content_hash": doc.content_hash,
+            # Fact-checker's own ClaimReview (app/claimreview.py) -> ContextGraph CheckedClaim.
+            # Receivers without the field ignore it (VerificationPipeline /ingest).
+            "claims": (doc.extra or {}).get("claim_reviews") or [],
         }
         try:
             response = await self.client.post(self.url, json=payload)
