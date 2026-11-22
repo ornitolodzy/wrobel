@@ -30,6 +30,34 @@ class ScrapAllRequest(BaseModel):
     max_items_per_source: int | None = Field(default=None, ge=1, le=500)
 
 
+class ScrapPageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=8, max_length=2048, description="Adres strony z witryny z katalogu (sources.yaml)")
+    source_id: str | None = Field(default=None, description="Wymusza źródło; domyślnie dobierane po adresie")
+    render: Literal["auto", "never", "always"] = "auto"
+
+
+class ScrapPageOut(BaseModel):
+    run_id: str
+    url: str
+    final_url: str
+    source_id: str
+    source_name: str
+    source_type: str
+    outcome: Literal["new", "updated", "unchanged"]
+    document_id: int
+    revision: int
+    title: str | None
+    publisher: str | None
+    published_at: date | None
+    language: str | None
+    text_chars: int
+    claim_reviews: int
+    rendered: bool
+    rag: Literal["sent", "error", "skipped", "disabled"]
+
+
 class RunOut(BaseModel):
     run_id: str
     status: str

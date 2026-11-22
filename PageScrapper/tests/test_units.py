@@ -357,3 +357,24 @@ def test_rag_client_one_failing_receiver_fails_the_push() -> None:
             await client.close()
 
     assert asyncio.run(send()) is False
+
+
+def test_catalog_source_for_page_picks_most_specific_source() -> None:
+    from pathlib import Path
+
+    from app.catalog import load_catalog
+
+    catalog = load_catalog(Path(__file__).parent.parent / "sources.yaml")
+    cases = {
+        "https://www.gov.pl/web/fundusze-regiony/od-strategicznych-inwestycji-i-reform-po-projekty-lokalne--kpo-zmienia-polske": "govpl-wyszukiwarka",
+        "https://www.gov.pl/web/rcb/alert-rcb-1": "rcb-komunikaty",
+        "https://www.gov.pl/web/obrona-narodowa/komunikat": "mon-aktualnosci",
+        "https://policja.pl/pol/aktualnosci/1001,Komunikat.html": "policja-aktualnosci",
+        "https://cert.pl/posts/2026/11/phishing/": "cert-polska",
+        "https://euvsdisinfo.eu/report/x/": "euvsdisinfo-artykuly",
+    }
+    for url, expected in cases.items():
+        assert catalog.source_for_page(url).id == expected, url
+    for url in ("https://example.com/", "https://api.sejm.gov.pl/eli/acts/DU/2026/1",
+                "https://factchecktools.googleapis.com/v1alpha1/claims:search", "urn:prawdowid:baza-incydentow"):
+        assert catalog.source_for_page(url) is None, url

@@ -215,3 +215,76 @@ def test_document_revisions_endpoint(make_client) -> None:
         one = c.get(f"/documents/{body['items'][0]['id']}").json()
         assert one["revision"] == 1 and one["url"] == body["items"][0]["url"]
         assert c.get("/documents/revisions", params={"limit": 1, "offset": 1}).json()["items"][0]["id"] == body["items"][1]["id"]
+
+
+KPO_URL = "https://www.gov.pl/web/fundusze-regiony/od-strategicznych-inwestycji-i-reform-po-projekty-lokalne--kpo-zmienia-polske"
+
+
+def test_scrap_page_stores_one_catalog_page(make_client) -> None:
+    handler = site_handler({KPO_URL: fx.html(fx.govpl_article("KPO zmienia Polskę", "18.11.2026", "Projekty lokalne z KPO. " * 10))})
+    with make_client(handler) as c:
+        r = c.post("/scrap/page", json={"url": KPO_URL})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["outcome"] == "new" and body["final_url"] == KPO_URL
+        assert body["source_id"] == "rcb-komunikaty"  # the only www.gov.pl source in the test catalog
+        assert body["source_type"] == "official"
+        assert body["title"] == "KPO zmienia Polskę" and body["published_at"] == "2026-11-18"
+        assert body["rag"] == "disabled"
+
+        doc = c.get(f"/documents/{body['document_id']}").json()
+        assert doc["url"] == KPO_URL and doc["source_id"] == "rcb-komunikaty"
+
+        again = c.post("/scrap/page", json={"url": KPO_URL + "#sekcja"}).json()
+        assert again["outcome"] == "unchanged" and again["document_id"] == body["document_id"]
+
+        run = c.get(f"/scrap/runs/{body['run_id']}").json()
+        assert run["status"] == "finished" and run["request"]["trigger"] == "page"
+        assert run["results"]["rcb-komunikaty"]["new"] == 1
+
+
+def test_scrap_page_rejects_pages_outside_catalog(make_client) -> None:
+    with make_client() as c:
+        for url in ("https://example.com/artykul", "http://www.gov.pl/web/rcb/alert-1",
+                    "https://www.gov.pl@example.com/x", "https://api.sejm.gov.pl/eli/acts/DU/2026/3"):
+            r = c.post("/scrap/page", json={"url": url})
+            assert r.status_code == 422, url
+            assert r.json()["detail"]["code"] == "not_in_catalog"
+            assert "https://www.gov.pl" in r.json()["detail"]["allowed_sites"]
+        assert c.post("/scrap/page", json={"url": "https://www.gov.pl/web/rcb/alert-1", "source_id": "policja-aktualnosci"}).status_code == 422
+        assert c.post("/scrap/page", json={"url": "https://www.gov.pl/web/rcb/alert-1", "source_id": "nie-ma"}).status_code == 422
+
+
+def test_scrap_page_respects_robots_and_redirects(make_client) -> None:
+    handler = site_handler({
+        "https://policja.pl/pol/aktualnosci/9,Przekierowanie.html": httpx.Response(302, headers={"location": "https://example.com/x"}),
+        "https://example.com/x": fx.html(fx.generic_article("Obca strona", "2026-11-20")),
+    })
+    with make_client(handler) as c:
+        r = c.post("/scrap/page", json={"url": "https://policja.pl/pol/zablokowane/1"})
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "robots_disallowed"
+        r = c.post("/scrap/page", json={"url": "https://policja.pl/pol/aktualnosci/9,Przekierowanie.html"})
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "not_in_catalog"
+        assert c.get("/documents").json()["total"] == 0
+        assert c.get("/scrap/runs").json()[0]["status"] == "finished_with_errors"
+
+
+def test_scrap_page_pushes_to_rag_with_claim_reviews(make_client) -> None:
+    sent: list[dict] = []
+    url = "https://demagog.org.pl/fake_news/fake-1/"
+    base = site_handler({url: fx.html(fx.fact_check_article("To nie jest prawdziwe zdjęcie", "2026-11-20", fx.CLAIM_REVIEW_GRAPH))})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == "http://rag:8004/ingest":
+            sent.append(json.loads(request.content))
+            return httpx.Response(200, json={"ok": True})
+        return base(request)
+
+    with make_client(handler, rag_ingest_url="http://rag:8004/ingest") as c:
+        body = c.post("/scrap/page", json={"url": url}).json()
+        assert body["source_id"] == "demagog-fake-news" and body["source_type"] == "fact_check"
+        assert body["rag"] == "sent" and body["claim_reviews"] == 1
+        [doc] = sent
+        assert doc["url"] == url and doc["claims"][0]["rating"] == "fałsz"
+        assert c.post("/scrap/page", json={"url": url}).json()["rag"] == "skipped"
+        assert len(sent) == 1

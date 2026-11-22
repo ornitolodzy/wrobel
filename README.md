@@ -1,18 +1,51 @@
 # PRAWDOWID — monorepo
 
 System RAG do weryfikacji twierdzeń (tekst, link, zrzut ekranu). Wszystkie serwisy w jednym repozytorium,
-spięte jednym stackiem Docker Compose i jedną bazą Postgres.
+spięte jednym stackiem Docker Compose. Postgres jest źródłem prawdy (dokumenty, historia sprawdzeń, audyt),
+Neo4j indeksem wyszukiwania ([ADR 0006](VerificationPipeline/docs/adr/0006-zrodlo-prawdy-i-rekoncyliacja.md)).
 
+```mermaid
+flowchart LR
+    user(["Przeglądarka"]) --> proxy["proxy :4200<br/>nginx"]
+    discord(["Discord"]) --> bot["DiscordBot<br/>profil discord"]
+    proxy -->|"/"| fe["Frontend<br/>Angular SSR"]
+    proxy -->|"/api, /ws, /health"| gw["APIGateway :8000"]
+    bot --> gw
+
+    gw -->|"zrzut ekranu"| ocr["ImageRecognitionServcie<br/>OCR :8001"]
+    gw -->|"link, live-search"| ps["PageScrapper :8002"]
+    gw -->|"/verify"| vp["VerificationPipeline :8003"]
+
+    subgraph data["Dane"]
+        pg[("Postgres 16<br/>documents: źródło prawdy<br/>check, case, audyt")]
+        neo[("Neo4j<br/>chunki, wektory, encje,<br/>CheckedClaim")]
+    end
+
+    cg["ContextGraph :8100<br/>profil graph"]
+
+    ps -->|"zapis z revision"| pg
+    ps -->|"push /ingest/document"| cg
+    ps -.->|"push /ingest, do fazy 3"| vp
+    cg -.->|"rekoncyliacja co 10 min<br/>GET /documents/revisions"| ps
+    cg -->|"jedyny pisarz"| neo
+    vp -->|"wyszukiwanie, tylko odczyt"| neo
+    vp -->|"sprawdzenia"| pg
+    gw -->|"audyt"| pg
+
+    subgraph gpu["Serwer GPU, tunel SSH"]
+        llm["Bielik 11B<br/>Ollama"]
+        emb["bge-m3<br/>embeddingi"]
+        rr["bge-reranker-v2-m3"]
+    end
+
+    vp --> llm
+    vp --> emb
+    vp --> rr
+    cg --> emb
 ```
- Przeglądarka ──► proxy :4200 (nginx) ──► Frontend (Angular SSR)
-                       │ /api, /ws, /health
-                       ▼
- Discord ──► DiscordBot ──► APIGateway :8000 ──────────► ImageRecognitionServcie (OCR) :8001
-                   │        │
-                   │        └──── URL ──────► PageScrapper :8002 ──/ingest──┐
-                   ▼                                                        ▼
-         VerificationPipeline :8003 ◄──────── hybrid retrieval ──── Postgres 16 + pgvector
-```
+
+Linie przerywane: push do pipeline'u działa tylko do końca migracji (faza 3 ADR 0006), a rekoncyliacja to pętla,
+która dosyła do grafu wszystko, czego push nie dowiózł.
 
 | Katalog | Serwis | Technologia |
 |---|---|---|
@@ -346,6 +379,7 @@ Odpowiedź (`CheckResponse`) zawiera `check_id`, `status` (`completed` / `needs_
 | GET | `/health` | czy działa |
 | POST | `/scrape` | pobiera jedną stronę: `{"url": "...", "render": "auto"\|"never"\|"always"}` |
 | POST | `/scrap/all` | pobieranie źródeł z [sources.yaml](PageScrapper/sources.yaml) w tle (202) |
+| POST | `/scrap/page` | pobranie i zapis jednej strony z witryny z [sources.yaml](PageScrapper/sources.yaml): `{"url": "https://www.gov.pl/web/..."}` |
 | GET | `/scrap/runs` | historia uruchomień |
 | GET | `/scrap/runs/{run_id}` | stan uruchomienia (new / updated / unchanged / errors per źródło) |
 | GET | `/sources` | katalog źródeł do audytu |

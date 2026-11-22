@@ -1,15 +1,20 @@
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from bs4 import BeautifulSoup
 
-from app.catalog import Catalog, SourceConfig
+from app.catalog import Catalog, SourceConfig, normalize_page_url, site_of
+from app.claimreview import extract_claim_reviews
 from app.config import Settings
-from app.db import Database, Document, ScrapeRun, utcnow
+from app.db import Database, Document, DocumentIn, ScrapeRun, utcnow
+from app.extract import clean_text, parse_date
 from app.fetch import FetchError, Fetcher
 from app.render import Renderer
+from app.scrape import fetch_page
 from app.sources import ADAPTERS
 from app.sources.base import AdapterContext, SourceSkipped
 
@@ -25,6 +30,18 @@ class RunAlreadyActive(Exception):
 
 class UnknownSource(Exception):
     pass
+
+
+@dataclass
+class PageResult:
+    run: ScrapeRun
+    source: SourceConfig
+    document: Document
+    details: dict[str, Any]
+
+
+class PageNotInCatalog(Exception):
+    """The page is not on a site from the catalog (or not on the site of the requested source)."""
 
 
 async def schedule_loop(ingestor: "Ingestor", interval_minutes: float, run_on_startup: bool) -> None:
@@ -211,3 +228,109 @@ class Ingestor:
         result["finished_at"] = utcnow().isoformat()
         logger.info("Source %s: %s", source.id, {k: v for k, v in result.items() if k != "errors"})
         return result
+
+    # ---------- one page (POST /scrap/page) ----------
+
+    def source_for_page(self, url: str, source_id: str | None) -> SourceConfig:
+        if source_id is None:
+            source = self.catalog.source_for_page(url)
+            if source is None:
+                raise PageNotInCatalog("Adres nie należy do żadnej witryny z katalogu źródeł.")
+            return source
+        source = self.catalog.get(source_id)
+        if source is None:
+            raise UnknownSource(source_id)
+        if site_of(url) not in source.sites():
+            raise PageNotInCatalog(f"Adres nie należy do witryny źródła {source_id}.")
+        return source
+
+    async def scrape_page(self, url: str, source_id: str | None, render: str) -> PageResult:
+        """Fetch one page from a catalog site and run it through the same pipeline as /scrap/all
+        (source cleaning rules, ClaimReview, upsert, RAG push). Recorded in /scrap/runs as well."""
+        url = normalize_page_url(url)
+        source = self.source_for_page(url, source_id)
+        run = ScrapeRun(
+            id=str(uuid.uuid4()),
+            started_at=utcnow(),
+            status="running",
+            request={"url": url, "source_ids": [source.id], "trigger": "page"},
+            results={source.id: {"status": "running"}},
+        )
+        result: dict[str, Any] = {"status": "running", "url": url, "started_at": run.started_at.isoformat()}
+        try:
+            stored, details = await self._ingest_page(url, source, render)
+            result.update(details)
+            result["status"] = "ok"
+            run.status = "finished"
+            return PageResult(run=run, source=source, document=stored, details=result)
+        except (FetchError, PageNotInCatalog) as exc:
+            result["status"] = "error"
+            result["message"] = getattr(exc, "message", None) or str(exc)
+            run.status = "finished_with_errors"
+            raise
+        except Exception as exc:
+            logger.exception("Single page scrape of %s crashed", url)
+            result["status"] = "error"
+            result["message"] = f"{type(exc).__name__}: {exc}"
+            run.status = "crashed"
+            raise
+        finally:
+            result["finished_at"] = utcnow().isoformat()
+            run.results = {source.id: result}
+            run.finished_at = utcnow()
+            await self.db.save_run(run)
+
+    async def _ingest_page(self, url: str, source: SourceConfig, render: str) -> tuple[Document, dict[str, Any]]:
+        if not await self.fetcher.allowed_by_robots(url):
+            raise FetchError("robots_disallowed", "robots.txt nie pozwala na pobranie tej strony.", 403)
+        scraped = await fetch_page(url, render, self.fetcher, self.renderer, self.settings)
+        page = scraped.page
+        if site_of(page.final_url) not in source.sites():
+            raise PageNotInCatalog("Strona przekierowuje poza witrynę z katalogu źródeł.")
+
+        published_at = page.published_at
+        date_selector = source.options.get("date_selector")
+        extra: dict[str, Any] = {}
+        if scraped.html is not None:
+            if date_selector:
+                element = BeautifulSoup(scraped.html, "lxml").select_one(date_selector)
+                published_at = (parse_date(element.get_text(" ", strip=True)) if element else None) or published_at
+            if reviews := extract_claim_reviews(scraped.html):
+                extra["claim_reviews"] = reviews
+
+        doc = DocumentIn(
+            url=normalize_page_url(page.final_url),
+            source_id=source.id,
+            source_type=source.source_type,
+            title=page.title,
+            publisher=scraped.site_publisher or source.publisher,
+            published_at=published_at,
+            text=clean_text(page.text, drop_prefixes=source.options.get("drop_lines_starting_with") or []),
+            language=source.options.get("language") or page.language or "pl",
+            extra=extra,
+        )
+        min_chars = int(source.options.get("min_text_chars", _MIN_DOCUMENT_CHARS))
+        if len(doc.text) < min_chars:
+            raise FetchError("no_text", "Za mało treści na stronie, żeby zapisać ją w bazie.", 422)
+
+        outcome, stored = await self.db.upsert(doc)
+        if self.rag is None:
+            rag = "disabled"
+        elif outcome == "unchanged":
+            rag = "skipped"
+        else:
+            rag = "sent" if await self.rag.send(stored) else "error"
+        logger.info("Page %s -> %s: %s, rag %s", url, source.id, outcome, rag)
+        return stored, {
+            "outcome": outcome,
+            "new": int(outcome == "new"),
+            "updated": int(outcome == "updated"),
+            "unchanged": int(outcome == "unchanged"),
+            "rag": rag,
+            "rag_sent": int(rag == "sent"),
+            "rag_errors": int(rag == "error"),
+            "document_id": stored.id,
+            "final_url": stored.url,
+            "rendered": page.rendered,
+            "claim_reviews": len(extra.get("claim_reviews", [])),
+        }

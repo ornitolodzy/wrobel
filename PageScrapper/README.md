@@ -74,6 +74,7 @@ Tests don't touch the internet (all pages are faked).
 |---|---|---|
 | POST | `/scrape` | read one page: `{"url": "...", "render": "auto"}` |
 | POST | `/scrap/all` | start scraping in the background: `{"source_ids": [...], "max_items_per_source": 10}` (both optional) |
+| POST | `/scrap/page` | scrape one page and store it like `/scrap/all`: `{"url": ..., "source_id": null, "render": "auto"}`; the URL must be on a site from `sources.yaml` (`scheme://host/`), the source is picked by the URL (422 `not_in_catalog` otherwise, 403 if robots.txt disallows) |
 | GET | `/scrap/runs` | history of scraping runs |
 | GET | `/scrap/runs/{run_id}` | status of one run (new / updated / unchanged / errors per source) |
 | GET | `/sources` | the source catalog + how many documents we have |
