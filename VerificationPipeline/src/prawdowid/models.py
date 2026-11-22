@@ -69,7 +69,7 @@ class RetrievalTrace(BaseModel):
     rrf: float | None = None
     rerank_score: float | None = None  # cross-encoder, if enabled
     final_rank: int | None = None
-    corpus_version: int | None = None
+    corpus_version: int | str | None = None   # Postgres: serial id; Neo4j graph: e.g. "current"
     neighbours: list[int] = Field(default_factory=list)  # positions of chunks glued as context
 
 

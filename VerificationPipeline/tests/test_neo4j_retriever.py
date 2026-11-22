@@ -48,6 +48,13 @@ def test_rrf_fusion_keeps_both_ranks_and_is_deterministic():
     assert rec["dense_hits"] == 2 and rec["sparse_hits"] == 2
 
 
+def test_text_corpus_version_from_graph_is_kept():
+    # ContextGraph writes (:CorpusVersion {id: "current"}); the contract does not fix the id type.
+    r = Canned(dense=[row("a", 0.9)], sparse=[], version={"id": "current", "embedding_model": "mock"})
+    ev = r.search(Q, {})
+    assert [e.chunk_id for e in ev] == ["a"] and ev[0].retrieval.corpus_version == "current"
+
+
 def test_embedding_model_mismatch_returns_nothing():
     r = Canned(dense=[row("a", 0.9)], sparse=[], version={"id": 1, "embedding_model": "bge-m3"})
     usage.start()
