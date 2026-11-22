@@ -370,7 +370,23 @@ Odpowiedź (`CheckResponse`) zawiera `check_id`, `status` (`completed` / `needs_
 |---|---|---|
 | GET | `/api/v1/config` | aktualne parametry (model LLM, limity, `mock_mode`) |
 | PATCH | `/api/v1/config` 🔑 | zmiana parametrów bez przebudowy, np. `{"llm_model": "...", "mock_mode": false}` |
-| GET | `/api/v1/admin/events` 🔑 | ostatnie zdarzenia z audit logu |
+| GET | `/api/v1/admin/events` 🔑 | ostatnie zdarzenia z audit logu (m.in. `prompt_injection`, `abstained`, `case_recommended`) |
+
+**Pętla informacji (moderator) i eksport**
+
+Twierdzenie bez rozstrzygnięcia trafia do sprawy dla moderatora. Podobne zgłoszenia (z WWW i Discorda) łączą się
+w jedną sprawę. Po `CASE_ESCALATE_AFTER` zgłoszeniach albo od razu w temacie wysokiego ryzyka (alarm, atak,
+ewakuacja, skażenie…) system **rekomenduje** przekazanie; **przekazano** pokazuje się dopiero po faktycznym
+wysłaniu (webhook `MODERATOR_WEBHOOK_URL` odpowiedział 2xx albo decyzja administratora). Użytkownik widzi stan sprawy
+pod odpowiedzią.
+
+| Metoda | Ścieżka | Opis |
+|---|---|---|
+| GET | `/api/v1/admin/cases?status=` 🔑 | sprawy, najczęściej zgłaszane na górze |
+| POST | `/api/v1/admin/cases/{id}/forward` 🔑 | faktyczne przekazanie, np. `{"to": "dyżurny analityk"}` |
+| POST | `/api/v1/admin/cases/{id}/close` 🔑 | zamknięcie, np. `{"resolution": "link do sprostowania"}` |
+| GET | `/api/v1/admin/export?kind=cases\|checks&format=json\|csv` 🔑 | eksport do narzędzi analitycznych |
+| DELETE | `/api/v1/checks/{id}` | usunięcie zapisu sprawdzenia (przycisk „Usuń zapis z serwera” w WWW); zgłoszenie znika też ze sprawy |
 
 ### PageScrapper — `http://127.0.0.1:8002` (tylko lokalnie)
 
@@ -436,6 +452,20 @@ Mapowanie werdyktów pipeline'u na kontrakt gatewaya: `potwierdzone` → `confir
 | Konfiguracja pipeline'u | http://127.0.0.1:8003/config | model per rola, `retrieval_backend: postgres` |
 | Katalog źródeł | http://localhost:8000/api/v1/sources | lista źródeł JSON |
 
+## Testy według sekcji 6 zadania (mierniki)
+
+Zestaw referencyjny [eval/cases.jsonl](eval/cases.jsonl) (52 przypadki, scenariusze A–J) przechodzi przez działający
+stack jak zgłoszenia użytkowników: kanałem WWW (te same wywołania co frontend) i kanałem Discord (klient z kodu bota).
+
+```bash
+make eval-e2e                       # albo: python eval/run_e2e.py --project <nazwa projektu compose>
+python eval/run_e2e.py --channels web --no-chaos --only A01,D01   # wybrane przypadki
+```
+
+Raport z miernikami (macro-F1, cytowania, wstrzymanie się, odporność, czas, koszt, end-to-end, spójność kanałów,
+pętla informacji) trafia do `eval/results/<czas>/report.md`. Wyniki i metodyka: [docs/wyniki-testow.md](docs/wyniki-testow.md),
+ryzyka: [docs/ryzyka.md](docs/ryzyka.md).
+
 ## Najważniejsza konfiguracja (`docker-compose.yml`)
 
 | Zmienna | Serwis | Domyślnie | Znaczenie |
@@ -443,7 +473,10 @@ Mapowanie werdyktów pipeline'u na kontrakt gatewaya: `potwierdzone` → `confir
 | `ADMIN_API_KEY` | api-gateway | `change-me-admin` | klucz do endpointów 🔑; **zmień poza środowiskiem lokalnym** |
 | `LLM_SERVICE_URL` | api-gateway | `http://verification-pipeline:8000` | adres pipeline'u weryfikacji; pusty = odpowiedzi MOCK |
 | `LLM_PROVIDER` / `LLM_MODEL` | api-gateway | `pipeline` / `conf` | model wysyłany do pipeline'u; `pipeline` = użyj konfiguracji pipeline'u; zmiana w locie przez `PATCH /api/v1/config` |
-| `DOWNSTREAM_TIMEOUT_SECONDS` | api-gateway | `90` | limit czasu na odpowiedź pipeline'u (do 3 wywołań LLM) |
+| `DOWNSTREAM_TIMEOUT_SECONDS` | api-gateway | `180` | limit czasu na odpowiedź pipeline'u (do 3 wywołań LLM) |
+| `RATE_LIMIT_PER_MINUTE` | api-gateway | `60` | limit zapytań na użytkownika (IP z `X-Real-IP` proxy) |
+| `CASE_ESCALATE_AFTER` | api-gateway | `2` | po tylu podobnych zgłoszeniach bez dowodów rekomendacja przekazania moderatorowi |
+| `MODERATOR_WEBHOOK_URL` | api-gateway | pusty | webhook kanału moderatorów (np. Discord); pusty = sprawy tylko w panelu, bez wysyłki |
 | `PAGE_SCRAPPER_URL` | api-gateway | `http://page-scrapper:8002` | adres scrappera |
 | `IMAGE_RECOGNITION_URL` | api-gateway | `http://ocr:8000` | adres OCR |
 | `CORS_ORIGINS` | api-gateway | `http://localhost:4200` | dozwolone originy |

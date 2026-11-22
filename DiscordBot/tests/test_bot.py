@@ -196,3 +196,15 @@ async def test_gateway_live_route_and_conflict_detail():
     await c.close()
     assert seen == [("/api/v1/verify/live", b'{"check_id":"abc"}')]
     assert not res.ok and res.problem == "To sprawdzenie ma już werdykt."
+
+
+def test_case_message_and_claim_limitations_are_shown():
+    c = claim("insufficient_evidence", sources=0)
+    c["limitations"] = ["Materiał archiwalny: źródło sprzed 2 lat."]
+    data = check(claims=[c], cases=[{"case_id": 7, "status": "recommended", "reports": 2, "risk": False,
+                                      "message": "Rekomendujemy przekazanie sprawy #7 moderatorowi."}])
+    e = result_embed(data)
+    assert any(f.name.startswith("📋") and "#7" in f.value for f in e.fields)
+    assert any(f.name == "Ograniczenia" and "archiwalny" in f.value for f in e.fields)
+    # w trakcie wyszukiwania na żywo sprawa jeszcze się nie pokazuje (może się zmienić)
+    assert not any(f.name.startswith("📋") for f in result_embed(data, live_pending=True).fields)

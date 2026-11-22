@@ -16,7 +16,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.config import Settings, get_settings
 from app.db import Database
 from app.deps import RateLimiter
-from app.routers import admin, checks, health, knowledge, services, verify
+from app.routers import admin, cases, checks, health, knowledge, services, verify
 from app.runtime_config import RuntimeConfigStore
 from app.services import Downstream
 
@@ -50,6 +50,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         app.state.runtime = runtime
         app.state.downstream = Downstream(settings, runtime, transport=transport)
         app.state.rate_limiter = RateLimiter(settings.rate_limit_per_minute)
+        app.state.transport = transport  # testy: webhook moderatora przez MockTransport
 
         if not settings.admin_api_key:
             logger.warning("Brak ADMIN_API_KEY – endpointy administracyjne są wyłączone.")
@@ -121,6 +122,7 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     app.include_router(knowledge.router)
     app.include_router(checks.router)
     app.include_router(admin.router)
+    app.include_router(cases.router)
 
     def openapi_without_captions() -> dict:
         if app.openapi_schema:

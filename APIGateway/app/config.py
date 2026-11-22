@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     live_search_enabled: bool = True
     live_search_timeout_seconds: float = 90.0
     live_search_max_documents: int = 5
+    # Pętla informacji: sprawy moderatora dla zgłoszeń bez rozstrzygnięcia
+    cases_enabled: bool = True
+    case_escalate_after: int = 2          # tyle podobnych zgłoszeń -> rekomendacja przekazania
+    case_similarity: float = 0.5          # Jaccard rdzeni słów, od którego zgłoszenia są „podobne”
+    moderator_webhook_url: str = ""       # np. webhook kanału moderatorów na Discordzie; puste = bez wysyłki
 
     llm_provider: str = "mistral"
     llm_model: str = "mistral-large-latest"

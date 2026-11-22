@@ -142,6 +142,16 @@ def usage_of(result: CheckResult) -> dict:
     }
 
 
+def security_of(result: CheckResult) -> dict:
+    """Manipulation attempts for the gateway audit log: in the user's input (normalize) and in
+    retrieved source text (the stance model reports instructions found in a fragment)."""
+    calls = [c for step in result.trace for c in step.get("calls", [])]
+    return {
+        "injection_suspected": bool(result.injection_suspected),
+        "injection_in_sources": any(c.get("event") == "injection_suspected" for c in calls),
+    }
+
+
 def to_gateway(result: CheckResult, max_sources: int | None) -> dict:
     claims = {c.id: c.text for c in result.claims}
     out = {
@@ -151,6 +161,7 @@ def to_gateway(result: CheckResult, max_sources: int | None) -> dict:
         "limitations": list(result.limitations),
         "clarification_question": None,
         "usage": usage_of(result),
+        "security": security_of(result),
     }
     if result.status == "needs_clarification" or not result.verdicts:
         out["status"] = "needs_clarification"

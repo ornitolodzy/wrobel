@@ -153,6 +153,51 @@
             }
           </div>
         }
+
+        @if (m.results && m.ocrText; as ocr) {
+          <details class="ocr">
+            <summary>Tekst odczytany ze zdjęcia</summary>
+            <p>{{ ocr }}</p>
+          </details>
+        }
+
+        <!-- Wymóg MVP: czytelna informacja o ograniczeniach odpowiedzi -->
+        @if (m.results && m.notes?.length) {
+          <aside class="notes" aria-label="Ograniczenia odpowiedzi">
+            <strong>Ograniczenia</strong>
+            <ul>
+              @for (n of m.notes; track n) {
+                <li>{{ n }}</li>
+              }
+            </ul>
+          </aside>
+        }
+
+        <!-- Pętla informacji: rekomendacja przekazania odróżniona od faktycznego przekazania -->
+        @if (m.results && m.live?.state !== 'searching') {
+          @for (n of m.caseNotes ?? []; track n) {
+            <p class="case" role="note">{{ n }}</p>
+          }
+        }
+
+        @if (m.results && m.checkIds?.length && m.live?.state !== 'searching') {
+          <p class="record">
+            @switch (m.deleted) {
+              @case ('done') {
+                Zapis tego sprawdzenia usunięto z serwera.
+              }
+              @case ('failed') {
+                Nie udało się usunąć zapisu.
+                <button type="button" (click)="remove.emit(m.id)">Spróbuj ponownie</button>
+              }
+              @default {
+                <button type="button" [disabled]="m.deleted === 'pending'" (click)="remove.emit(m.id)">
+                  Usuń zapis z serwera
+                </button>
+              }
+            }
+          </p>
+        }
       </div>
     </div>
   }

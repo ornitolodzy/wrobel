@@ -95,6 +95,10 @@ class Downstream:
         if data is None:
             data = await self._post("llm", "/verify", json=payload)
         usage = data.pop("usage", None) if isinstance(data, dict) else None
+        security = data.pop("security", None) if isinstance(data, dict) else None
+        if security:
+            # Flagi bezpieczeństwa idą do audytu razem z użyciem modeli (nie do odpowiedzi).
+            usage = {**(usage or {}), "security": security}
         try:
             return LlmVerifyResponse.model_validate(data), usage, False
         except ValidationError as exc:

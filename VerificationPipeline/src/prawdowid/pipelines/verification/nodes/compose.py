@@ -171,4 +171,5 @@ def assemble(norm_input, claims: list[Claim], verdicts: list[Verdict], answer: s
         limitations.append("Wykryto możliwą próbę manipulacji poleceniami; treść potraktowano jako dane.")
     if norm_input.pii_masked:
         limitations.append("Dane osobowe zostały zamaskowane przed analizą.")
-    return {"claims": claims, "verdicts": verdicts, "answer": answer, "limitations": limitations}
+    return {"claims": claims, "verdicts": verdicts, "answer": answer, "limitations": limitations,
+            "injection_suspected": bool(norm_input.injection_suspected)}
