@@ -38,6 +38,8 @@
   --prawdowid-bg-canvas: #e6e2dc;
   --prawdowid-bg-input: #f4f1ea;
   --prawdowid-bg-footer: #c5b299;
+  /* Wysokość paska stopki na mobile (bez safe-area); FAB Discorda i composer się do niej równają */
+  --prawdowid-footer-h-mobile: 52px;
 
   --prawdowid-text-primary: #1f1e1e;
   --prawdowid-text-secondary: #9e826b;
@@ -76,6 +78,8 @@
   --prawdowid-verdict-false-bg: #f0d9d1;
   --prawdowid-verdict-unverified: #6b5038;
   --prawdowid-verdict-unverified-bg: #e9ded0;
+  --prawdowid-verdict-misleading: #7a4a0c;
+  --prawdowid-verdict-misleading-bg: #f2e1c2;
 
   /* Faktura papieru: szum SVG (~0.5 kB), brązowe ziarno o niskim kryciu */
   --prawdowid-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .43 0 0 0 0 .33 0 0 0 0 .24 .5 0 0 0 -.22'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");

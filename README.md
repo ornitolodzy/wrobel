@@ -19,6 +19,7 @@ spięte jednym stackiem Docker Compose i jedną bazą Postgres.
 | [APIGateway/](APIGateway/) | brzeg systemu: walidacja, rate limit, PII, audit log | FastAPI |
 | [VerificationPipeline/](VerificationPipeline/) | twierdzenia → dowody → stanowisko → werdykt (reguły) | Kedro, FastAPI, LiteLLM |
 | [PageScrapper/](PageScrapper/) | pobieranie stron + budowa korpusu ze źródeł | FastAPI, Playwright |
+| [ContextGraph/](ContextGraph/) | graf wiedzy (dokumenty + zdarzenia z Bielika), profil `graph` | FastAPI, Neo4j |
 | [ImageRecognitionServcie/](ImageRecognitionServcie/) | OCR obrazów | FastAPI, PaddleOCR |
 | [Frontend/](Frontend/) | interfejs webowy | Angular 21 SSR |
 | [DiscordBot/](DiscordBot/) | kanał 2: bot Discord (`/wrobel`, DM, @wzmianka), adapter na gateway | discord.py |
@@ -34,6 +35,7 @@ Połączenia są zdefiniowane w jednym miejscu: [docker-compose.yml](docker-comp
 | APIGateway | PageScrapper | `PAGE_SCRAPPER_URL` |
 | APIGateway | OCR | `IMAGE_RECOGNITION_URL` |
 | PageScrapper | VerificationPipeline `/ingest` | `RAG_INGEST_URL` |
+| PageScrapper | ContextGraph `/ingest/document` | `make graph-sync` ([ContextGraph/README.md](ContextGraph/README.md)) |
 | DiscordBot (profil `discord`) | APIGateway `/api/v1/verify/*` | `GATEWAY_URL` |
 | wszystkie | Postgres | `DATABASE_URL` |
 | Frontend (`ng serve`) | APIGateway `:8000` | [Frontend/proxy.conf.json](Frontend/proxy.conf.json) |
@@ -92,6 +94,7 @@ make start            # to samo co ./start.sh
 |---|---|
 | `--no-build` | start bez przebudowy obrazów |
 | `--no-scrape` | bez pierwszego pobrania źródeł |
+| `--graph` | dodatkowo ContextGraph + Neo4j (profil `graph`) i kopia dokumentów scrappera do grafu |
 
 Zmienne: `ADMIN_API_KEY`, `WAIT_TIMEOUT` (sekundy, domyślnie 900). Bez skryptu: `docker compose up -d --build`.
 
@@ -403,6 +406,8 @@ Mapowanie werdyktów pipeline'u na kontrakt gatewaya: `potwierdzone` → `confir
 | `SCRAPE_ON_STARTUP` | page-scrapper | `false` | czy pobierać źródła zaraz po starcie |
 | `RAG_INGEST_URL` | page-scrapper | `http://verification-pipeline:8000/ingest` | gdzie wysyłać nowe dokumenty do indeksu |
 | `PRAWDOWID_LLM_PROVIDER` / `PRAWDOWID_LLM_MODEL` | verification-pipeline | z `.env`; puste = `mock` | model LLM wszystkich ról (LiteLLM: `anthropic/...`, `mistral/...`, `openai/...` + `PRAWDOWID_LLM_API_BASE`) |
+| `PRAWDOWID_LLM_JSON_MODE` | verification-pipeline | puste = `auto` | `example`: przykład JSON w prompcie zamiast schematu (Bielik Q4 czasem odsyła schemat) |
+| `PRAWDOWID_RETRIEVAL_TOP_K` / `PRAWDOWID_MAX_CONTEXT_CHARS` | verification-pipeline | puste = `conf/` (8 / 12000) | mniej dowodów w prompcie dla modeli z małym oknem (Bielik w Ollamie: 4096 tokenów → `5` / `4500`) |
 | `PRAWDOWID_ENV` | verification-pipeline | `docker` | nakładka [conf/docker/parameters.yml](VerificationPipeline/conf/docker/parameters.yml): retrieval z Postgresa, embeddingi `mock` |
 | `PRAWDOWID_SYNC_ON_STARTUP` | verification-pipeline | `true` | przy starcie indeksuje dokumenty zebrane wcześniej przez scrapper |
 | `OCR_LANGS` | ocr | `pl,en` | języki OCR |
@@ -438,6 +443,7 @@ make build S=page-scrapper && make up
 make dev-backend                 # backend w Dockerze...
 make dev-frontend                # ...i Angular z hot reload na :4200 (proxy do gatewaya)
 make test                        # testy serwisów Pythona (lokalnie)
+make graph-up && make graph-sync # ContextGraph (Neo4j) obok stacku + dokumenty ze scrapera
 ```
 
 CI ([.github/workflows/](.github/workflows/)) uruchamia testy tylko dla serwisów zmienionych w danym commicie

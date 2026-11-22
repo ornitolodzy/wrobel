@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { ConnectionStatus } from '../../../core/realtime/realtime.service';
 import { ChatMessage } from '../../../core/search.models';
 import { VerdictTag } from '../../../shared/verdict-tag/verdict-tag';
@@ -10,7 +11,7 @@ import { VerdictTag } from '../../../shared/verdict-tag/verdict-tag';
  */
 @Component({
   selector: 'app-chat-thread',
-  imports: [VerdictTag],
+  imports: [VerdictTag, DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-thread.html',
   styleUrl: './chat-thread.css',
@@ -18,4 +19,6 @@ import { VerdictTag } from '../../../shared/verdict-tag/verdict-tag';
 export class ChatThread {
   readonly messages = input.required<ChatMessage[]>();
   readonly status = input.required<ConnectionStatus>();
+  /** Znacznik czasu nad dymkiem, np. 22.11.2026, 14:05 */
+  protected readonly STAMP = 'dd.MM.yyyy, HH:mm';
 }

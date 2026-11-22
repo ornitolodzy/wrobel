@@ -4,7 +4,9 @@ import { Verdict } from '../../core/search.models';
 const LABELS: Record<Verdict, string> = {
   true: 'Prawdziwe',
   false: 'Fałszywe',
+  misleading: 'Wprowadza w błąd',
   unverified: 'Niepotwierdzone',
+  unverifiable: 'Nieweryfikowalne',
 };
 
 /** Owalny tag werdyktu w dymku bota. Kolory: tokeny --prawdowid-verdict-* w styles.css. */
@@ -33,7 +35,12 @@ const LABELS: Record<Verdict, string> = {
       color: var(--prawdowid-verdict-false);
       background: var(--prawdowid-verdict-false-bg);
     }
-    :host([data-verdict='unverified']) {
+    :host([data-verdict='misleading']) {
+      color: var(--prawdowid-verdict-misleading);
+      background: var(--prawdowid-verdict-misleading-bg);
+    }
+    :host([data-verdict='unverified']),
+    :host([data-verdict='unverifiable']) {
       color: var(--prawdowid-verdict-unverified);
       background: var(--prawdowid-verdict-unverified-bg);
     }

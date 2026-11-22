@@ -122,6 +122,25 @@ def test_opinion_from_llm_skips_stance(params):
     assert r.verdicts[0].label == "nie_podlega_weryfikacji"
 
 
+def test_broken_stance_item_is_dropped_not_whole_answer():
+    out = StanceOut.model_validate_json(
+        '{"items": [{"source_id": 1, "label": "refutes", "quote": "Pismo nie pochodzi z MSZ", "rationale": "r"},'
+        ' {"label": "supports", "quote": "x", "rationale": "brak source_id"},'
+        ' {"source_id": 2, "label": "supports", "quote": null, "rationale": "quote null"}]}')
+    assert [it.source_id for it in out.items] == [1]
+
+
+def test_env_overrides_shrink_context(monkeypatch):
+    monkeypatch.setenv("PRAWDOWID_RETRIEVAL_TOP_K", "5")
+    monkeypatch.setenv("PRAWDOWID_MAX_CONTEXT_CHARS", "5500")
+    load_parameters.cache_clear()
+    try:
+        r = load_parameters()["retrieval"]
+        assert (r["top_k"], r["max_context_chars"]) == (5, 5500)
+    finally:
+        load_parameters.cache_clear()
+
+
 def test_nli_ignores_inherited_llm_model_name():
     from prawdowid.llm.nli_provider import DEFAULT_MODEL, NLIStanceProvider
 
