@@ -1,19 +1,5 @@
 # Prawdowid
 
-> [!IMPORTANT]
-> **MUST HAVE po konfiguracji bota Discord — link w przycisku Discorda to na razie placeholder.**
->
-> W prawym dolnym rogu aplikacji jest przycisk z ikoną Discorda, który ma przenosić do bota Wróbel.
-> Teraz wskazuje na `https://discord.com/`. Po skonfigurowaniu bota (instrukcja: `DiscordBot/README.md`):
->
-> 1. W [src/app/core/links.ts](src/app/core/links.ts) podmień `DISCORD_BOT_URL` na link zaproszenia bota
->    (wypisuje go `./start.sh` albo `docker compose logs discord-bot | grep "Invite link"`)
->    lub na zaproszenie na Wasz serwer z botem.
-> 2. Usuń komentarz `TODO(discord-link)` w tym pliku.
-> 3. Usuń tę notkę z README.
->
-> Komponent przycisku: [src/app/layout/discord-fab/discord-fab.ts](src/app/layout/discord-fab/discord-fab.ts).
-
 This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.25.
 
 ## Development server
