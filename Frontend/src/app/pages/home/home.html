@@ -8,7 +8,7 @@
     <div class="pattern" aria-hidden="true"></div>
     <div class="chat-header" aria-hidden="true"><div class="divider"></div></div>
 
-    <app-chat-thread [messages]="messages()" [status]="status()" />
+    <app-chat-thread [messages]="messages()" [status]="status()" [photoFlight]="photoFlight()" />
 
     <div class="composer">
       <ng-container [ngTemplateOutlet]="searchBar" [ngTemplateOutletContext]="{ composer: true }" />

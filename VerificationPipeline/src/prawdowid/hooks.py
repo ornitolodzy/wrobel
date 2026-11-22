@@ -7,6 +7,7 @@ from typing import Any
 
 from kedro.framework.hooks import hook_impl
 
+from prawdowid import progress
 from prawdowid.llm import usage
 
 
@@ -20,6 +21,7 @@ class TraceHooks:
     @hook_impl
     def before_node_run(self, node) -> None:
         self._started[node.name] = time.perf_counter()
+        progress.emit("step", step=node.name)
 
     @hook_impl
     def after_node_run(self, node, outputs) -> None:
@@ -32,6 +34,7 @@ class TraceHooks:
         if calls := usage.drain():
             entry["calls"] = calls
         self.trace.append(entry)
+        _progress_of(node.name, outputs)
 
     @hook_impl
     def on_node_error(self, error, node) -> None:
@@ -49,3 +52,19 @@ class TraceHooks:
 
 def _size(value: Any) -> Any:
     return len(value) if isinstance(value, (list, dict)) else type(value).__name__
+
+
+def _progress_of(step: str, outputs: dict[str, Any]) -> None:
+    """What the user can already be told after a step (streamed by /verify/stream)."""
+    if step == "extract_claims":
+        claims = outputs.get("claims") or []
+        progress.emit("claims", claims=[{"id": c.id, "text": c.text, "type": c.type} for c in claims])
+    elif step == "select_context":
+        progress.emit("evidence", items=[
+            {"claim_id": ce.claim_id, "sources": len({e.url for e in ce.evidence if e.section == "tresc"})}
+            for ce in outputs.get("evidence") or []
+        ])
+    elif step == "decide":
+        progress.emit("verdicts", items=[
+            {"claim_id": v.claim_id, "label": v.label} for v in outputs.get("verdicts") or []
+        ])
