@@ -27,7 +27,9 @@ from app.scrape import scrape_url
 
 logger = logging.getLogger("scraper.live_search")
 
-SEARCH_TIMEOUT_SECONDS = 25.0
+SEARCH_TIMEOUT_SECONDS = 20.0
+# wyszukiwarka budowana JavaScriptem (gov.pl): pierwsze uruchomienie przeglądarki trwa dłużej
+RENDERED_SEARCH_TIMEOUT_SECONDS = 50.0
 FETCH_TIMEOUT_SECONDS = 25.0
 MAX_PER_SOURCE = 2
 MAX_TERMS = 5
@@ -56,11 +58,21 @@ _VERB_ENDINGS = ("ło", "ła", "ły", "ił", "ał", "ył", "ili", "ali", "yli", 
 _WORD = re.compile(r"[0-9A-Za-zÀ-ž][0-9A-Za-zÀ-ž\-]*")
 
 
+# Słowa obecne w połowie polskich tekstów urzędowych: pomagają wyszukiwarce, ale nie świadczą o temacie
+# („Polski” pasuje do „Nowości od CERT Polska”). Prefiksy rdzeni.
+_COMMON_PREFIXES = (
+    "polsk", "polsc", "rząd", "rzad", "minist", "państw", "panstw", "kraj", "ludzi", "osób", "osob",
+    "rok", "lat", "dzień", "dzien", "obywat", "urząd", "urzad", "władz", "wladz",
+)
+
+
 @dataclass
 class _Term:
     word: str
     score: float
     position: int
+    proper: bool = False  # nazwa własna lub skrót: Tusk, MSZ, Westerplatte
+    common: bool = False  # bardzo częste słowo (Polska, rząd, minister)
 
     @property
     def stem(self) -> str:
@@ -87,15 +99,20 @@ def extract_terms(query: str, limit: int = MAX_TERMS) -> list[_Term]:
             continue
         # każde słowo treściowe się liczy (krótkie też: „wiz”, „VAT”), długość tylko trochę
         score = 3 + min(len(word), 12) / 4
-        if raw[:1].isupper() and pos > 0:
+        acronym = raw.isupper() and len(raw) >= 2
+        common = word.startswith(_COMMON_PREFIXES)
+        proper = not common and (acronym or (raw[:1].isupper() and pos > 0))
+        if proper:
             score += 4  # nazwa własna w środku zdania
-        if raw.isupper() and len(raw) >= 2:
+        if acronym:
             score += 3  # skrót: MSZ, RCB, NATO
         if any(ch.isdigit() for ch in word):
             score += 3
         if word.endswith(_VERB_ENDINGS):
-            score -= 2.5  # czasowniki („wprowadziło”, „ogłosił”) mniej wyróżniają temat niż rzeczowniki
-        terms[word] = _Term(word=word, score=score, position=pos)
+            score -= 3.5  # czasowniki („wprowadziło”, „ogłosił”) mniej wyróżniają temat niż rzeczowniki
+        if common:
+            score -= 3
+        terms[word] = _Term(word=word, score=score, position=pos, proper=proper, common=common)
     best = sorted(terms.values(), key=lambda t: -t.score)[:limit]
     return sorted(best, key=lambda t: t.position)
 
@@ -104,6 +121,19 @@ def _hits(text: str, stems: list[str]) -> int:
     """Ile rdzeni występuje na początku jakiegoś słowa („minist” nie pasuje do „feministyczne”)."""
     lowered = text.lower()
     return sum(1 for s in stems if re.search(r"\b" + re.escape(s), lowered))
+
+
+def is_relevant(title: str, text: str, terms: list[_Term]) -> bool:
+    """Czy strona dotyczy twierdzenia:
+    - w tytule jest nazwa własna z twierdzenia (a gdy ich brak - inne nie-częste słowo kluczowe),
+    - w tytule i treści jest większość nie-częstych słów kluczowych.
+    Częste słowa (Polska, rząd...) nie wystarczą, żeby strona przeszła."""
+    key = [t.stem for t in terms if not t.common] or [t.stem for t in terms]
+    proper = [t.stem for t in terms if t.proper]
+    if _hits(title, proper or key) == 0:
+        return False
+    needed = max(1, (len(key) + 1) // 2)
+    return _hits(f"{title}\n{text}", key) >= needed
 
 
 @dataclass
@@ -155,7 +185,7 @@ class LiveSearcher:
                 run.status, run.message = "skipped", "Brak słów kluczowych w zapytaniu."
 
         picked = await self._pick(runs, max_documents)
-        documents = await asyncio.gather(*(self._fetch_and_store(c, query, stems) for c in picked))
+        documents = await asyncio.gather(*(self._fetch_and_store(c, query, terms) for c in picked))
 
         return LiveSearchOut(
             query=query,
@@ -178,7 +208,9 @@ class LiveSearcher:
 
     async def _search_source(self, run: _SourceRun, terms: list[_Term]) -> None:
         try:
-            await asyncio.wait_for(self._collect(run, terms), timeout=SEARCH_TIMEOUT_SECONDS)
+            rendered = run.source.live_search.kind == "rendered"
+            timeout = RENDERED_SEARCH_TIMEOUT_SECONDS if rendered else SEARCH_TIMEOUT_SECONDS
+            await asyncio.wait_for(self._collect(run, terms), timeout=timeout)
             if not run.candidates and run.status == "ok":
                 run.status = "no_results"
         except asyncio.TimeoutError:
@@ -279,7 +311,7 @@ class LiveSearcher:
                     picked.append(queue.pop(0))
         return picked
 
-    async def _fetch_and_store(self, cand: _Candidate, query: str, stems: list[str]) -> LiveSearchDocument | None:
+    async def _fetch_and_store(self, cand: _Candidate, query: str, terms: list[_Term]) -> LiveSearchDocument | None:
         try:
             if not await self.fetcher.allowed_by_robots(cand.url):
                 return None
@@ -291,14 +323,8 @@ class LiveSearcher:
             logger.info("Live search: skipped %s (%s)", cand.url, getattr(exc, "code", "timeout"))
             return None
 
-        # Strona musi faktycznie dotyczyć twierdzenia: słowo kluczowe w tytule i większość w treści
         title = page.title or cand.title
-        needed = max(1, (len(stems) + 1) // 2)
-        if (
-            len(page.text) < MIN_DOCUMENT_CHARS
-            or _hits(title, stems) == 0
-            or _hits(f"{title}\n{page.text}", stems) < needed
-        ):
+        if len(page.text) < MIN_DOCUMENT_CHARS or not is_relevant(title, page.text, terms):
             logger.info("Live search: %s not relevant enough", cand.url)
             return None
 

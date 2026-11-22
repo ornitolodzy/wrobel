@@ -103,6 +103,7 @@ class CheckRunner:
                 pii_types=[],
                 page_url=check.input_masked,
                 live_search=info,
+                prior=prev,
             )
         content = {"ocr_text": prev.ocr_text} if input_type == InputType.image else {"text": check.input_masked}
         return await self._run(
@@ -112,6 +113,7 @@ class CheckRunner:
             pii_types=[],
             live_search=info,
             ocr_text=prev.ocr_text,
+            prior=prev,
         )
 
     def _unchanged(self, prev: CheckResponse, info: LiveSearchInfo) -> JSONResponse:
@@ -133,6 +135,7 @@ class CheckRunner:
         page_url: str | None = None,
         live_search: LiveSearchInfo | None = None,
         ocr_text: str | None = None,
+        prior: CheckResponse | None = None,
     ) -> JSONResponse:
         check_id = str(uuid.uuid4())
         created_at = utcnow()
@@ -223,7 +226,7 @@ class CheckRunner:
         else:
             assert result is not None
             if live_search is not None:
-                live_search = _with_outcome(live_search, result)
+                result, live_search = _live_outcome(live_search, result, prior)
             response = CheckResponse(
                 check_id=check_id,
                 status=CheckStatus(result.status),
@@ -346,7 +349,35 @@ def _live_info(previous_check_id: str, data: dict[str, Any]) -> LiveSearchInfo:
     )
 
 
-def _with_outcome(info: LiveSearchInfo, result: LlmVerifyResponse) -> LiveSearchInfo:
+# Werdykty, które coś rozstrzygają: po wyszukiwaniu na żywo wymagamy dla nich co najmniej średnich przesłanek.
+_DECISIVE = {Verdict.confirmed, Verdict.false, Verdict.misleading}
+_STRONG_ENOUGH = {"moderate", "strong"}
+
+WEAK_LIVE_NOTE = (
+    "Strony znalezione na żywo dają tylko słabe przesłanki, więc wynik się nie zmienia. "
+    "Możesz je przejrzeć samodzielnie."
+)
+
+
+def _live_outcome(
+    info: LiveSearchInfo, result: LlmVerifyResponse, prior: CheckResponse | None
+) -> tuple[LlmVerifyResponse, LiveSearchInfo]:
+    """Bezpiecznik: strony dociągnięte na żywo to świeże, nieprzejrzane źródła, a mały model potrafi
+    źle odczytać stanowisko tekstu. Rozstrzygający werdykt (prawda / fałsz / manipulacja) zastępuje
+    „brak danych” tylko przy co najmniej średnich przesłankach; inaczej zostaje poprzedni wynik."""
+    weak = [
+        c for c in result.claims
+        if c.verdict in _DECISIVE and (c.evidence_strength or "none") not in _STRONG_ENOUGH
+    ]
+    if result.status == "completed" and weak and prior is not None:
+        kept = LlmVerifyResponse(
+            status="completed",
+            claims=prior.claims,
+            summary=prior.summary,
+            limitations=prior.limitations + [WEAK_LIVE_NOTE],
+            clarification_question=prior.clarification_question,
+        )
+        return kept, info.model_copy(update={"improved": False, "message": f"{info.message} {WEAK_LIVE_NOTE}"})
     improved = any(c.verdict != Verdict.insufficient_evidence for c in result.claims)
-    suffix = " Nowe źródła pozwoliły ocenić twierdzenie." if improved else " Nadal nie wystarczają do oceny."
-    return info.model_copy(update={"improved": improved, "message": info.message + suffix})
+    suffix = "Nowe źródła pozwoliły ocenić twierdzenie." if improved else "Nadal nie wystarczają do oceny."
+    return result, info.model_copy(update={"improved": improved, "message": f"{info.message} {suffix}"})

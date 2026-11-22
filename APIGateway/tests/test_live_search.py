@@ -9,6 +9,8 @@ CLAIM = "MSZ wstrzymało wydawanie wiz dla obywateli Rosji"
 
 
 def llm_result(verdict: str) -> dict:
+    # "false:weak" = werdykt false ze słabymi przesłankami
+    verdict, _, strength = verdict.partition(":")
     return {
         "status": "completed",
         "claims": [
@@ -16,7 +18,7 @@ def llm_result(verdict: str) -> dict:
                 "claim": CLAIM,
                 "verdict": verdict,
                 "explanation": "Wyjaśnienie.",
-                "evidence_strength": "none" if verdict == "insufficient_evidence" else "strong",
+                "evidence_strength": strength or ("none" if verdict == "insufficient_evidence" else "strong"),
                 "sources": [],
                 "limitations": [],
             }
@@ -95,6 +97,30 @@ def test_live_search_reverifies_with_new_documents(make_client) -> None:
         # nowe sprawdzenie zapisane jak każde inne
         stored = c.get(f"/api/v1/checks/{body['check_id']}").json()
         assert stored["live_search"]["improved"] is True
+
+
+def test_weak_decisive_verdict_after_live_search_keeps_previous_result(make_client) -> None:
+    calls: list[tuple[str, dict]] = []
+    with make_client(handler(calls, ["insufficient_evidence", "false:weak"]), **URLS) as c:
+        first = c.post("/api/v1/verify/claim", json={"text": CLAIM}, headers=WEB).json()
+        body = c.post("/api/v1/verify/live", json={"check_id": first["check_id"]}, headers=WEB).json()
+
+        assert [name for name, _ in calls] == ["verify", "live", "verify"]
+        assert body["claims"][0]["verdict"] == "insufficient_evidence"  # nie „fałsz” na słabych przesłankach
+        live = body["live_search"]
+        assert live["reverified"] is True
+        assert live["improved"] is False
+        assert live["documents"]  # strony nadal pokazane do przejrzenia
+        assert "tylko słabe przesłanki" in live["message"]
+        assert any("tylko słabe przesłanki" in lim for lim in body["limitations"])
+
+
+def test_moderate_verdict_after_live_search_is_accepted(make_client) -> None:
+    with make_client(handler([], ["insufficient_evidence", "misleading:moderate"]), **URLS) as c:
+        first = c.post("/api/v1/verify/claim", json={"text": CLAIM}, headers=WEB).json()
+        body = c.post("/api/v1/verify/live", json={"check_id": first["check_id"]}, headers=WEB).json()
+        assert body["claims"][0]["verdict"] == "misleading"
+        assert body["live_search"]["improved"] is True
 
 
 def test_live_search_without_new_documents_keeps_result_and_skips_llm(make_client) -> None:

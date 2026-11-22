@@ -3,7 +3,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
-from app.live_search import _hits, extract_terms
+from app.live_search import _hits, extract_terms, is_relevant
 from tests import fixtures as fx
 from tests.conftest import FakeRenderer
 
@@ -73,6 +73,18 @@ def test_extract_terms_prefers_nouns_over_verbs() -> None:
     words = [t.word for t in extract_terms(claim)]
     assert "grypie" in words
     assert "wprowadziło" not in words
+
+
+def test_relevance_requires_proper_nouns_not_common_words() -> None:
+    terms = extract_terms("Donald Tusk jest premierem Polski?")
+    assert {t.word for t in terms if t.proper} == {"tusk"}  # „Donald” na początku zdania
+    assert [t.word for t in terms if t.common] == ["polski"]
+    body = "Premier Donald Tusk przedstawił dziś plan. " * 10
+    # samo „Polska” w tytule nie wystarcza
+    assert not is_relevant("Nowości od CERT Polska", body, terms)
+    assert is_relevant("Premier Donald Tusk o planie rządu", body, terms)
+    # nazwa własna w tytule, ale treść o czymś innym
+    assert not is_relevant("Tusk na meczu", "Relacja z meczu piłkarskiego. " * 10, terms)
 
 
 def test_hits_match_word_starts_only() -> None:
