@@ -1,13 +1,17 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { booleanAttribute, ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { DISCORD_BOT_URL } from '../../core/links';
 
 /**
  * Pływający przycisk w prawym dolnym rogu: przenosi do bota Wróbel na Discordzie (kanał 2).
  * Kolory z palety SIW; po najechaniu kolor Discorda (blurple), żeby było jasne, dokąd prowadzi.
+ *
+ * `inline`: wersja w pasku pytania czatu (desktop). Jedzie razem z paskiem, więc zawsze stoi
+ * na jego wysokości, także gdy pasek podnosi się nad stopkę na końcu strony.
  */
 @Component({
   selector: 'app-discord-fab',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.inline]': 'inline()' },
   template: `
     <a
       class="fab"
@@ -30,6 +34,16 @@ import { DISCORD_BOT_URL } from '../../core/links';
       z-index: 10;
       right: calc(24px + env(safe-area-inset-right));
       bottom: calc(64px + env(safe-area-inset-bottom)); /* nad paskiem stopki (~44 px) */
+    }
+
+    /* W pasku pytania (rodzic .composer ma position: sticky): wyśrodkowany w pionie względem
+       pola, czyli w obszarze między górnym (20 px) a dolnym paddingiem composera */
+    :host(.inline) {
+      position: absolute;
+      top: 20px;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      display: flex;
+      align-items: center;
     }
 
     .fab {
@@ -119,6 +133,10 @@ import { DISCORD_BOT_URL } from '../../core/links';
       .label {
         display: none;
       }
+      /* Mobile: przycisk zostaje w przyklejonej stopce (globalny), nie w pasku pytania */
+      :host(.inline) {
+        display: none;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -140,5 +158,6 @@ import { DISCORD_BOT_URL } from '../../core/links';
   `,
 })
 export class DiscordFab {
+  readonly inline = input(false, { transform: booleanAttribute });
   protected readonly url = DISCORD_BOT_URL;
 }

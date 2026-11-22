@@ -12,6 +12,7 @@
 
     <div class="composer">
       <ng-container [ngTemplateOutlet]="searchBar" [ngTemplateOutletContext]="{ composer: true }" />
+      <app-discord-fab inline />
     </div>
   } @else {
     <div class="search-wrap">

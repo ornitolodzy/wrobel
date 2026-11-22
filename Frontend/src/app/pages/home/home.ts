@@ -13,6 +13,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Logo } from '../../shared/logo/logo';
 import { ImageCropper } from '../../shared/image-cropper/image-cropper';
 import { ChatThread } from './chat-thread/chat-thread';
+import { DiscordFab } from '../../layout/discord-fab/discord-fab';
 import { ConnectionStatus, RealtimeService } from '../../core/realtime/realtime.service';
 import { asUrl, fromGateway } from '../../core/gateway-results';
 import { BotMessage, ChatMessage, SearchResultsPayload } from '../../core/search.models';
@@ -49,7 +50,7 @@ type ViewTransitionDocument = Document & {
 
 @Component({
   selector: 'app-home',
-  imports: [Logo, ImageCropper, ChatThread, NgTemplateOutlet],
+  imports: [Logo, ImageCropper, ChatThread, NgTemplateOutlet, DiscordFab],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './home.html',
   styleUrls: ['./home.css', './home-chat.css'],

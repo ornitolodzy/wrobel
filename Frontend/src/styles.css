@@ -182,3 +182,11 @@ input {
     animation: none !important;
   }
 }
+
+/* Desktop, faza czatu: przycisk Discorda jedzie w pasku pytania (<app-discord-fab inline>),
+   pływający w rogu ekranu się chowa, żeby nie rozjeżdżał się z paskiem przy końcu strony */
+@media (min-width: 601px) {
+  body:has(.stage.chat) app-discord-fab:not(.inline) {
+    display: none;
+  }
+}
