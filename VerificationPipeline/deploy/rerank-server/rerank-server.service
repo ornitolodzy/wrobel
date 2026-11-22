@@ -1,0 +1,16 @@
+# systemd --user unit: ~/.config/systemd/user/rerank-server.service
+#   systemctl --user daemon-reload && systemctl --user enable --now rerank-server
+# Starts with the user's session; to start at boot without logging in: loginctl enable-linger <user>
+[Unit]
+Description=Prawdowid reranker (bge-reranker-v2-m3 on GPU)
+After=network.target
+
+[Service]
+WorkingDirectory=%h/rerank-server
+Environment=RERANK_MODEL=BAAI/bge-reranker-v2-m3
+ExecStart=%h/rerank-server/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8081
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

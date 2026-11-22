@@ -15,3 +15,14 @@ embeddings:
 ingestion:
   chunk_chars: 1200
   chunk_overlap: 150
+
+reranker:
+  # CPU cross-encoder cost is linear in candidates (~1 s each). bge-m3 + RRF already ranks the
+  # relevant source within the top 10 (eval: recall@10 = 1.0), so scoring 30 mostly wastes time.
+  top_n: 10
+
+eval:
+  # Cases built from the PageScrapper corpus (the base ones cite Linki.md sources not in this corpus).
+  # tests/ is not in the image: mount it, e.g. -v ./VerificationPipeline/tests/eval:/app/tests/eval:ro
+  cases_path: tests/eval/cases_pagescrapper.jsonl
+  retrieval_cases_path: tests/eval/retrieval_cases_pagescrapper.jsonl

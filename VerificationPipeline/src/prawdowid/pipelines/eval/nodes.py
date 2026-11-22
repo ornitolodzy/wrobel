@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import statistics
 import time
 from pathlib import Path
 
-from prawdowid.runtime import PROJECT_ROOT, verify
+from prawdowid.runtime import PROJECT_ROOT, _env_overrides, verify
+
+
+def _deployed(parameters: dict) -> dict:
+    """`kedro run` reads conf/ only; apply the same env knobs as the API (embeddings, reranker,
+    LLM, backend) so eval measures what is deployed."""
+    return _env_overrides(copy.deepcopy(parameters))
 
 LABELS = ["potwierdzone", "falszywe", "wprowadzajace_w_blad", "brak_dowodow", "nie_podlega_weryfikacji"]
 
@@ -18,6 +25,7 @@ def load_cases(eval_params: dict) -> list[dict]:
 
 
 def run_cases(cases: list[dict], parameters: dict) -> list[dict]:
+    parameters = _deployed(parameters)
     rows = []
     for case in cases:
         t0 = time.perf_counter()
@@ -105,6 +113,7 @@ def run_retrieval_cases(cases: list[dict], parameters: dict) -> list[dict]:
     from prawdowid.pipelines.verification.nodes.retrieval import retrieve_rerank
     from prawdowid.pipelines.verification.nodes.context import select_context
 
+    parameters = _deployed(parameters)
     if not cases or parameters["retrieval"].get("backend", "mock") == "mock":
         return []
     rows = []
@@ -137,11 +146,14 @@ def run_retrieval_cases(cases: list[dict], parameters: dict) -> list[dict]:
 
 
 def retrieval_report(rows: list[dict], parameters: dict) -> dict:
+    parameters = _deployed(parameters)
     if not rows:
         return {"note": "retrieval eval skipped (no cases or retrieval.backend == mock)"}
     pos = [r for r in rows if r["relevant_urls"]]
     return {
         "cases": len(rows), "positives": len(pos),
+        "embedding_model": f"{parameters['embeddings'].get('provider')}:{parameters['embeddings'].get('model')}",
+        "reranker": bool((parameters.get("reranker") or {}).get("enabled")),
         "recall@10": round(sum(r["recall@10"] for r in pos) / len(pos), 3) if pos else None,
         "mrr": round(sum(r["reciprocal_rank"] for r in pos) / len(pos), 3) if pos else None,
         "relevant_in_final_context": round(sum(r["relevant_in_final_context"] for r in pos) / len(pos), 3) if pos else None,

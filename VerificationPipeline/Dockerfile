@@ -16,13 +16,25 @@ WORKDIR /app
 COPY pyproject.toml ./
 RUN mkdir -p src/prawdowid && touch src/prawdowid/__init__.py     && pip install ".[llm,retrieval]" && pip uninstall -y prawdowid
 
+# Optional reranker (bge-reranker-v2-m3 on CPU): docker compose build --build-arg WITH_RERANK=true
+# (or WITH_RERANK=true in .env). CPU-only torch keeps the image ~800 MB larger instead of ~3 GB.
+ARG WITH_RERANK=false
+RUN if [ "$WITH_RERANK" = "true" ]; then \
+      pip install torch --index-url https://download.pytorch.org/whl/cpu \
+      && pip install ".[rerank]" && pip uninstall -y prawdowid; \
+    fi
+
 COPY src ./src
 RUN pip install --no-deps .
 
 COPY conf ./conf
 COPY db ./db
 
-RUN useradd --create-home --uid 10001 pipeline && chown -R pipeline /app
+# The HF cache dir must exist (owned by pipeline) before a named volume is mounted on it,
+# otherwise Docker creates it as root and the reranker cannot download its weights.
+RUN useradd --create-home --uid 10001 pipeline \
+    && mkdir -p /home/pipeline/.cache/huggingface \
+    && chown -R pipeline /app /home/pipeline/.cache
 USER pipeline
 
 EXPOSE 8000

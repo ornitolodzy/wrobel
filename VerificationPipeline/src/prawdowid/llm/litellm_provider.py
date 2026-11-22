@@ -38,6 +38,10 @@ class LiteLLMProvider:
                 mode = "schema" if litellm.supports_response_schema(model=self.model) else "object"
             except Exception:
                 mode = "object"
+            # Ollama >= 0.5 constrains decoding to a JSON schema (`format`), but LiteLLM's model map
+            # does not say so. Without it Bielik (Ollama) sometimes drops required fields.
+            if self.model.startswith(("ollama/", "ollama_chat/")):
+                mode = "schema"
         self.json_mode = mode
 
     # ---- public ----

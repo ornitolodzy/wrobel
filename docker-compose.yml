@@ -59,7 +59,9 @@ services:
       # PATCH /api/v1/config {"llm_provider": "anthropic", "llm_model": "claude-opus-5-5"}
       LLM_PROVIDER: pipeline
       LLM_MODEL: conf
-      DOWNSTREAM_TIMEOUT_SECONDS: "90"
+      # Pełne sprawdzenie z Bielikiem (zdalnie) i rerankerem (CPU) trwa ~30-60 s; zapas na kolejkę.
+      # Musi być mniejszy niż proxy_read_timeout w proxy/nginx.conf.
+      DOWNSTREAM_TIMEOUT_SECONDS: "180"
       MOCK_MODE: "false"
     depends_on:
       postgres:
@@ -128,6 +130,13 @@ services:
     build:
       context: ./VerificationPipeline
       dockerfile: Dockerfile
+      args:
+        WITH_RERANK: ${WITH_RERANK:-false}
+    # Linux: host.docker.internal -> host (SSH tunnel to the Bielik/bge-m3 server listens there)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - hf-cache:/home/pipeline/.cache/huggingface   # reranker weights survive restarts
     ports:
       - "127.0.0.1:8003:8000"
     environment:
@@ -143,6 +152,18 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Embeddingi (korpus i zapytania tym samym modelem). Puste = conf/ (mock). Zmiana modelu
+      # = automatyczne przeliczenie korpusu przy starcie (nowy corpus_version).
+      PRAWDOWID_EMBEDDINGS_PROVIDER: ${PRAWDOWID_EMBEDDINGS_PROVIDER:-}
+      PRAWDOWID_EMBEDDINGS_MODEL: ${PRAWDOWID_EMBEDDINGS_MODEL:-}
+      PRAWDOWID_EMBEDDINGS_API_BASE: ${PRAWDOWID_EMBEDDINGS_API_BASE:-}
+      # Reranker: provider local (CPU, obraz z WITH_RERANK=true) albo remote (GPU na serwerze,
+      # VerificationPipeline/deploy/rerank-server, przez tunel SSH). fallback=local: CPU, gdy serwer
+      # nie odpowiada (też wymaga WITH_RERANK=true).
+      PRAWDOWID_RERANKER_ENABLED: ${PRAWDOWID_RERANKER_ENABLED:-}
+      PRAWDOWID_RERANKER_PROVIDER: ${PRAWDOWID_RERANKER_PROVIDER:-}
+      PRAWDOWID_RERANKER_API_BASE: ${PRAWDOWID_RERANKER_API_BASE:-}
+      PRAWDOWID_RERANKER_FALLBACK: ${PRAWDOWID_RERANKER_FALLBACK:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -150,3 +171,4 @@ services:
 
 volumes:
   postgres-data:
+  hf-cache:

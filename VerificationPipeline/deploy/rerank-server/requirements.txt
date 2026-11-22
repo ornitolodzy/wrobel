@@ -1,0 +1,4 @@
+# torch with CUDA is installed separately (index URL depends on the GPU), see README.md
+transformers>=4.44
+fastapi>=0.115
+uvicorn>=0.30

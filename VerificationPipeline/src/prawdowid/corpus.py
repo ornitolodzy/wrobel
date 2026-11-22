@@ -115,14 +115,20 @@ def store_documents(docs: list[dict], params: dict) -> dict:
         last = conn.execute(
             "SELECT id, embedding_model FROM corpus_version ORDER BY id DESC LIMIT 1").fetchone()
         model_changed = last is not None and last[1] != embedder.model
+        # Up to date = same text AND every chunk embedded by the current model. Checking the model
+        # per document (not only against the last corpus_version) matters for batched syncs: the
+        # first batch after a model switch opens the new version, later batches must still re-embed.
         existing = dict(conn.execute(
-            "SELECT url, content_hash FROM document WHERE url = ANY(%s)",
-            ([d["url"] for d in docs],)).fetchall())
+            """SELECT d.url, d.content_hash FROM document d
+               WHERE d.url = ANY(%s) AND NOT EXISTS (
+                   SELECT 1 FROM chunk c JOIN corpus_version v ON v.id = c.corpus_version
+                   WHERE c.document_id = d.id AND v.embedding_model <> %s)""",
+            ([d["url"] for d in docs], embedder.model)).fetchall())
 
         changed = []
         for d in docs:
             d["content_hash"] = hashlib.sha256(d["text"].encode()).hexdigest()
-            if model_changed or existing.get(d["url"]) != d["content_hash"]:
+            if existing.get(d["url"]) != d["content_hash"]:
                 changed.append(d)
         stats["unchanged"] = len(docs) - len(changed)
         if not changed:

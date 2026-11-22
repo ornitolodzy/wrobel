@@ -106,3 +106,11 @@ def test_truncated_output_is_error(calls):
     queue.append(resp('{"claims": [', finish="length"))
     with pytest.raises(LLMError):
         provider().complete_json("sys", "user", ClaimsOut)
+
+
+def test_ollama_models_use_schema_mode():
+    """Ollama constrains decoding to the schema; LiteLLM's model map does not report it."""
+    from prawdowid.llm.litellm_provider import LiteLLMProvider
+
+    assert LiteLLMProvider({"model": "ollama/SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M"}).json_mode == "schema"
+    assert LiteLLMProvider({"model": "ollama/bielik", "json_mode": "object"}).json_mode == "object"

@@ -1,0 +1,7 @@
+{"id": "f01", "scenario": "prawda", "input": "W nocy 20 listopada RCB wysłało alert o zagrożeniu atakiem z powietrza mieszkańcom województw lubelskiego i podkarpackiego.", "expected_label": "potwierdzone"}
+{"id": "f02", "scenario": "prawda", "input": "Norma Euro 7 nie pozwala na wyłączenie silnika podczas jazdy.", "expected_label": "potwierdzone"}
+{"id": "f03", "scenario": "falsz", "input": "Pod Trybunałem Konstytucyjnym interweniowała niemiecka policja z Hamburga.", "expected_label": "falszywe"}
+{"id": "f04", "scenario": "falsz", "input": "Polskie myśliwce F-16 zestrzeliły rakietę nad Nowym Lipowcem, co pokazuje zdjęcie z pościgu.", "expected_label": "falszywe"}
+{"id": "f05", "scenario": "falsz", "input": "Oszust podający się za lekarza ONZ wyłudził od mieszkanki Siedlec 90 tysięcy złotych.", "expected_label": "falszywe"}
+{"id": "f06", "scenario": "brak", "input": "MSZ zamknęło ambasadę RP w Lizbonie z powodu zagrożenia terrorystycznego.", "expected_label": "brak_dowodow"}
+{"id": "f07", "scenario": "opinia", "input": "Moim zdaniem ćwiczenia Koalicji Chętnych to strata pieniędzy.", "expected_label": "nie_podlega_weryfikacji"}

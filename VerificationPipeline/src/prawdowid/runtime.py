@@ -52,6 +52,13 @@ def _env_overrides(params: dict) -> dict:
       PRAWDOWID_LLM_MODEL     LiteLLM model string           (all roles)
       PRAWDOWID_LLM_API_BASE  e.g. vLLM/Ollama endpoint for Bielik
       PRAWDOWID_RETRIEVAL_BACKEND  mock | postgres | neo4j
+      PRAWDOWID_EMBEDDINGS_PROVIDER  mock | ollama
+      PRAWDOWID_EMBEDDINGS_MODEL     e.g. bge-m3 (corpus and queries must use the same one)
+      PRAWDOWID_EMBEDDINGS_API_BASE  e.g. http://host.docker.internal:11435 (Ollama via SSH tunnel)
+      PRAWDOWID_RERANKER_ENABLED     true | false
+      PRAWDOWID_RERANKER_PROVIDER    local (CPU, image with WITH_RERANK=true) | remote (GPU server)
+      PRAWDOWID_RERANKER_API_BASE    e.g. http://host.docker.internal:8081 (deploy/rerank-server)
+      PRAWDOWID_RERANKER_FALLBACK    local = use the CPU reranker if the server is unreachable
     """
     provider = os.environ.get("PRAWDOWID_LLM_PROVIDER", "").strip()
     model = os.environ.get("PRAWDOWID_LLM_MODEL", "").strip()
@@ -69,6 +76,19 @@ def _env_overrides(params: dict) -> dict:
             roles[role] = cfg
     if backend := os.environ.get("PRAWDOWID_RETRIEVAL_BACKEND", "").strip():
         params["retrieval"]["backend"] = backend
+    emb = dict(params.get("embeddings") or {})
+    for key in ("provider", "model", "api_base"):
+        if value := os.environ.get(f"PRAWDOWID_EMBEDDINGS_{key.upper()}", "").strip():
+            emb[key] = value
+    params["embeddings"] = emb
+    rr = dict(params.get("reranker") or {})
+    if rerank := os.environ.get("PRAWDOWID_RERANKER_ENABLED", "").strip().lower():
+        rr["enabled"] = rerank in ("1", "true", "yes")
+    for key in ("provider", "api_base", "fallback"):
+        if value := os.environ.get(f"PRAWDOWID_RERANKER_{key.upper()}", "").strip():
+            rr[key] = value
+    if rr or "reranker" in params:
+        params["reranker"] = rr
     return params
 
 

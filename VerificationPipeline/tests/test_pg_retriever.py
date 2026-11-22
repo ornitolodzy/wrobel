@@ -134,3 +134,29 @@ def test_full_pipeline_uses_corpus(db):
     ctx = next(c for c in calls if c.get("role") == "context")
     assert ret["corpus_version"] == 1 and ctx["kept"] >= 1
     assert r.status == "ok"
+
+
+def test_model_switch_reembeds_every_sync_batch(db):
+    """Regression: after a model switch the first batch opens the new corpus_version; later batches
+    must still be re-embedded (they used to be skipped as 'unchanged', mixing two models)."""
+    from prawdowid.corpus import store_documents
+
+    class Switched(MockEmbedder):
+        def __init__(self, params):
+            super().__init__(params)
+            self.model = "switched-model"
+
+    emb_base.override("switched", Switched(EMB))
+    params = {"ingestion": ING, "embeddings": {"provider": "switched"}, "db": None}
+    payload = [{"url": d["url"], "title": d["title"], "text": d["text"]} for d in DOCS]
+    try:
+        first = store_documents(payload[:1], params)
+        rest = store_documents(payload[1:], params)
+    finally:
+        emb_base._overrides.clear()
+    assert first["changed"] == 1 and rest["changed"] == 2 and rest["unchanged"] == 0
+    import psycopg
+    with psycopg.connect(TEST_URL) as conn:
+        models = conn.execute("""SELECT DISTINCT v.embedding_model FROM chunk c
+                                 JOIN corpus_version v ON v.id = c.corpus_version""").fetchall()
+    assert models == [("switched-model",)]

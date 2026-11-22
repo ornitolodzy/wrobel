@@ -43,7 +43,8 @@ def select_context(
             scores = reranker.score(by_query[cid].dense, [e.text for e in content])
             for e, sc in zip(content, scores):
                 e.rerank_score = e.retrieval.rerank_score = round(float(sc), 4)
-            usage.record(role="reranker", claim_id=cid, model=reranker.model, scored=len(content))
+            usage.record(role="reranker", claim_id=cid, model=reranker.model, scored=len(content),
+                         where=getattr(reranker, "where", None))
 
         ranked = sorted(content, key=lambda e: (-e.rerank_score, e.chunk_id))
         dropped += [(e, f"poniżej progu rerank_min={rp['rerank_min']}")
