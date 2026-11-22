@@ -120,7 +120,17 @@ def result_embed(data: dict[str, Any], asked: str | None = None, live_pending: b
         e.add_field(name=live[0], value=live[1], inline=False)
         used += len(live[0]) + len(live[1])
 
-    notes = list(dict.fromkeys(data.get("limitations") or []))
+    # Pętla informacji: rekomendacja przekazania sprawy albo faktyczne przekazanie (tekst z gatewaya).
+    if not live_pending:
+        case_msgs = [c.get("message") for c in data.get("cases") or [] if c.get("message")]
+        if case_msgs:
+            value = cut(" ".join(case_msgs), 600)
+            if used + len(value) < EMBED_BUDGET:
+                e.add_field(name="📋 Sprawa dla moderatora", value=value, inline=False)
+                used += len(value)
+
+    notes = list(dict.fromkeys([*(data.get("limitations") or []),
+                                *(n for c in claims for n in c.get("limitations") or [])]))
     if data.get("mock"):
         notes.insert(0, "Tryb testowy (MOCK) — to nie jest prawdziwe sprawdzenie.")
     if notes:

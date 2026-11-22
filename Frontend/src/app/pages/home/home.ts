@@ -209,6 +209,10 @@ export class Home {
         answeredAt: new Date(),
         checkId: payload.checkId,
         live: payload.liveEligible ? { state: 'searching' } : payload.live,
+        notes: payload.notes,
+        caseNotes: payload.caseNotes,
+        ocrText: payload.ocrText,
+        checkIds: payload.checkIds,
       };
       return next;
     });
@@ -240,6 +244,9 @@ export class Home {
               checkId: payload.checkId,
               live: payload.live,
               answeredAt: new Date(),
+              notes: payload.notes,
+              caseNotes: payload.caseNotes,
+              checkIds: payload.checkIds,
             }
           : { live: { ...payload.live, state: 'failed' } };
     } catch {
@@ -247,6 +254,33 @@ export class Home {
     }
     this.messages.update((list) =>
       list.map((m) => (m.role === 'bot' && m.checkId === checkId ? { ...m, ...update } : m)),
+    );
+  }
+
+  /**
+   * Prywatność (zadanie §5): użytkownik usuwa zapis swojego sprawdzenia z serwera
+   * (DELETE /api/v1/checks/{id}; przy wyszukiwaniu na żywo są dwa zapisy).
+   */
+  protected async deleteRecord(messageId: number): Promise<void> {
+    const msg = this.messages().find((m) => m.id === messageId);
+    if (msg?.role !== 'bot' || !msg.checkIds?.length) return;
+    this.patchBot(messageId, { deleted: 'pending' });
+    const results = await Promise.all(
+      msg.checkIds.map((id) =>
+        fetch(`/api/v1/checks/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { 'X-Channel': 'web' },
+        })
+          .then((r) => r.ok || r.status === 404)
+          .catch(() => false),
+      ),
+    );
+    this.patchBot(messageId, { deleted: results.every(Boolean) ? 'done' : 'failed' });
+  }
+
+  private patchBot(messageId: number, patch: Partial<BotMessage>): void {
+    this.messages.update((list) =>
+      list.map((m) => (m.role === 'bot' && m.id === messageId ? { ...m, ...patch } : m)),
     );
   }
 

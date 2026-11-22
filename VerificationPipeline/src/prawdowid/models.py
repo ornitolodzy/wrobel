@@ -164,4 +164,7 @@ class CheckResult(BaseModel):
     verdicts: list[Verdict] = Field(default_factory=list)
     answer: str = ""
     limitations: list[str] = Field(default_factory=list)
+    # Security flag for the gateway audit log: a manipulation attempt in the input is treated as
+    # data, but the event must be recorded (task §6, scenario E).
+    injection_suspected: bool = False
     trace: list[dict] = Field(default_factory=list)

@@ -1,3 +1,4 @@
+import ipaddress
 import secrets
 import time
 from collections import defaultdict, deque
@@ -37,7 +38,26 @@ def get_downstream(request: Request) -> Downstream:
 
 
 def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    """Adres użytkownika do limitu zapytań i audytu.
+
+    Za proxy (nginx w tej samej sieci Dockera) połączenie zawsze przychodzi z adresu proxy, więc
+    wszyscy użytkownicy WWW dzieliliby jeden limit. Nagłówek X-Real-IP / X-Forwarded-For ustawiony
+    przez proxy jest brany pod uwagę tylko dla połączeń z sieci prywatnej: klient łączący się
+    bezpośrednio z publicznego adresu nie podmieni sobie nim klucza limitu.
+    """
+    peer = request.client.host if request.client else "unknown"
+    try:
+        trusted = ipaddress.ip_address(peer).is_private or ipaddress.ip_address(peer).is_loopback
+    except ValueError:
+        trusted = False
+    if trusted:
+        forwarded = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "")
+        first = forwarded.split(",")[0].strip()
+        try:
+            return str(ipaddress.ip_address(first))
+        except ValueError:
+            pass
+    return peer
 
 
 def get_channel(

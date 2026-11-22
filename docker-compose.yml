@@ -65,6 +65,12 @@ services:
       # Pełne sprawdzenie z Bielikiem (zdalnie) i rerankerem (CPU) trwa ~30-60 s; zapas na kolejkę.
       # Musi być mniejszy niż proxy_read_timeout w proxy/nginx.conf.
       DOWNSTREAM_TIMEOUT_SECONDS: "180"
+      # Limit zapytań na użytkownika (IP z X-Real-IP proxy) na minutę; jury testuje wiele przypadków.
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+      # Pętla informacji: rekomendacja przekazania po tylu podobnych zgłoszeniach bez dowodów;
+      # webhook moderatorów (np. Discord) - puste = sprawy tylko w panelu /api/v1/admin/cases.
+      CASE_ESCALATE_AFTER: ${CASE_ESCALATE_AFTER:-2}
+      MODERATOR_WEBHOOK_URL: ${MODERATOR_WEBHOOK_URL:-}
       MOCK_MODE: "false"
     depends_on:
       postgres:

@@ -56,14 +56,40 @@ export function fromGateway(query: string, body: any): SearchResultsPayload {
     !body?.live_search &&
     typeof body?.check_id === 'string' &&
     claims.some((c) => c?.verdict === 'insufficient_evidence');
+  const checkId = typeof body?.check_id === 'string' ? body.check_id : undefined;
+  const previous = body?.live_search?.previous_check_id;
   return {
     query,
     results,
     verdict,
-    checkId: typeof body?.check_id === 'string' ? body.check_id : undefined,
+    checkId,
     liveEligible,
     live: body?.live_search ? toLive(body.live_search) : undefined,
+    notes: notesOf(body, claims),
+    caseNotes: (Array.isArray(body?.cases) ? body.cases : [])
+      .map((c: any) => (typeof c?.message === 'string' ? c.message : ''))
+      .filter((m: string) => !!m),
+    ocrText: typeof body?.ocr_text === 'string' && body.ocr_text.trim() ? body.ocr_text.trim() : undefined,
+    checkIds: [checkId, typeof previous === 'string' ? previous : undefined].filter(
+      (id): id is string => !!id,
+    ),
   };
+}
+
+/**
+ * Ograniczenia odpowiedzi (wymóg MVP: „czytelna informacja o ograniczeniach”): tryb testowy,
+ * ostrzeżenia całego sprawdzenia i poszczególnych twierdzeń (np. materiał archiwalny), bez powtórzeń.
+ */
+function notesOf(body: any, claims: any[]): string[] {
+  const notes: string[] = [];
+  if (body?.mock) notes.push('Tryb testowy: to nie jest prawdziwe sprawdzenie.');
+  for (const n of [
+    ...(Array.isArray(body?.limitations) ? body.limitations : []),
+    ...claims.flatMap((c) => (Array.isArray(c?.limitations) ? c.limitations : [])),
+  ]) {
+    if (typeof n === 'string' && n.trim() && !notes.includes(n.trim())) notes.push(n.trim());
+  }
+  return notes;
 }
 
 /** CheckResponse.live_search -> notka pod wynikiem. */

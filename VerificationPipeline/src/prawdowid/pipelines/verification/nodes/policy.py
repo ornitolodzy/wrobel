@@ -5,6 +5,7 @@ Unit-tested per scenario (tests/test_policy.py) without any LLM call.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 from prawdowid.models import (
@@ -17,6 +18,15 @@ from prawdowid.models import (
     Stance,
     Verdict,
 )
+
+# A fact-checker's explicit ruling in its own text (IFCN/EFCSN rating vocabulary), see decide().
+_RULING = re.compile(
+    r"(\bfałsz\w*|\bnieprawd\w*|\bfake\b|\bfejk\w*|\bmanipul\w*|\bzmanipul\w*|\bdezinformac\w*"
+    r"|\bwprowadz\w* w błąd|\bwyrwan\w* z kontekstu|\bprzeróbk\w*|\bzdementow\w*|\bdementuj\w*|\bdementi\b"
+    r"|\bzaprzecz\w*|\bzainscenizow\w*|\bbezpodstawn\w*|\bnieprawdziw\w*)",
+    re.IGNORECASE,
+)
+_YEAR = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
 
 DEFAULT_POLICY = {
     "source_weights": {"primary": 1.0, "factcheck": 0.9, "secondary": 0.6, "web": 0.3},
@@ -62,7 +72,11 @@ def decide(
             reasons=["To opinia lub prognoza, a nie twierdzenie o fakcie."],
         )
 
-    rel = [s for s in stances if s.label != "irrelevant" and s.chunk_id in evidence_by_id]
+    # A quote can be evidence only if it is about the claim: it must share at least one content word
+    # (stem) with the claim, counting the source title. Otherwise a verbatim but unrelated fragment
+    # (e.g. an act's "entry into force" date) could "confirm" anything (citation correctness, §6).
+    rel = [s for s in stances if s.label != "irrelevant" and s.chunk_id in evidence_by_id
+           and _on_topic(claim.text, s.quote, evidence_by_id[s.chunk_id].title)]
     if not rel:
         return verdict("brak_dowodow", ["Brak źródeł odnoszących się do twierdzenia."])
 
@@ -78,12 +92,17 @@ def decide(
 
     def decisive(label):
         """One source settles the claim on its own only if it is primary material, or if it is a
-        strong fact-checker's own rating of the claim (section "ocena"). A fact-check's prose about
-        the same person or topic is not a ruling on this claim: then two independent sources are needed."""
+        strong fact-checker's own rating of the claim: the rating record (section "ocena"), or a
+        refuting fact-check whose text states the ruling explicitly (IFCN-style wording: „fałsz”,
+        „manipulacja”, „zdementowano”...). A fact-check's prose about the same person or topic
+        without such a ruling is not a ruling on this claim: then two independent sources are needed."""
         for s in of(label):
             e = evidence_by_id[s.chunk_id]
             w = weights[e.source_type]
             if w >= 1.0 or (e.section == "ocena" and w >= strong):
+                return True
+            if (label == "refutes" and e.source_type == "factcheck" and w >= strong
+                    and _RULING.search(f"{e.title or ''}\n{e.text}\n{s.quote}")):
                 return True
         return False
 
@@ -109,6 +128,10 @@ def decide(
             of("refutes"),
         )
     if sup and (decisive("supports") or len(sup) >= 2) and not ref:
+        other_time = _time_mismatch(claim.text, of("supports"), evidence_by_id)
+        if other_time:
+            # Scenario B: real material, wrong time. The sources confirm the event, not the claimed date.
+            return verdict("wprowadzajace_w_blad", [other_time], of("supports"))
         return verdict(
             "potwierdzone",
             [_describe(f"{len(sup)} niezależne źródło(a) potwierdzają", of("supports"), evidence_by_id)],
@@ -220,6 +243,50 @@ def _archive_warning(used, by_id, now, p) -> list[str]:
     if dates and (now - max(dates)).days > p["archive_after_days"]:
         return [f"Materiał archiwalny: najnowsze źródło z {max(dates):%Y-%m-%d}."]
     return []
+
+
+_STOP = set(
+    "albo będzie będą była było były gdzie jako jest jeszcze które który która może można także tego "
+    "tych tylko przez przy oraz roku dnia więc wszystko został została zostało zostanie".split()
+)
+
+
+def _stems(text: str) -> set[str]:
+    """Content-word stems: words of 4+ letters (5-letter prefix, which joins most Polish inflected
+    forms) and numbers other than years (years are matched separately by _time_mismatch)."""
+    out = set()
+    for w in re.findall(r"[^\W_]+", (text or "").lower()):
+        if w.isdigit():
+            if len(w) >= 2 and not _YEAR.fullmatch(w):
+                out.add(w)
+        elif len(w) >= 4 and w not in _STOP:
+            out.add(w[:5])
+    return out
+
+
+def _on_topic(claim_text: str, quote: str, title: str | None) -> bool:
+    claim = _stems(claim_text)
+    return not claim or bool(claim & _stems(f"{quote} {title or ''}"))
+
+
+def _time_mismatch(claim_text: str, used: list[Stance], by_id: dict[str, Evidence]) -> str | None:
+    """The claim names a year that none of the confirming sources mentions or was published in:
+    the sources confirm the event, but from another time (scenario B, „zły czas”)."""
+    years = set(_YEAR.findall(claim_text or ""))
+    if not years or not used:
+        return None
+    dates = []
+    for s in used:
+        e = by_id[s.chunk_id]
+        if e.published_at and str(e.published_at.year) in years:
+            return None
+        if any(y in f"{e.title or ''} {e.text}" for y in years):
+            return None
+        if e.published_at:
+            dates.append(f"{e.published_at:%Y-%m-%d}")
+    when = ", ".join(sorted(set(dates))) or "innego okresu"
+    return (f"Źródła potwierdzają opisane zdarzenie, ale z innego czasu: twierdzenie mówi o roku "
+            f"{', '.join(sorted(years))}, a źródła pochodzą z {when}.")
 
 
 def _describe(prefix: str, used: list[Stance], by_id: dict[str, Evidence]) -> str:

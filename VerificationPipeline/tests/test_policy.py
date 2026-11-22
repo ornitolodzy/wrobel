@@ -18,8 +18,9 @@ def ev(cid, source_type="primary", group=None, days_old=10, publisher="gov.pl"):
     )
 
 
-def st(cid, label):
-    return Stance(claim_id="c1", chunk_id=cid, label=label, quote="tekst", rationale="r")
+def st(cid, label, quote="MSZ wysłało pismo do Czech"):
+    # A real stance quotes a fragment about the claim (the policy ignores off-topic quotes).
+    return Stance(claim_id="c1", chunk_id=cid, label=label, quote=quote, rationale="r")
 
 
 def test_opinion_not_verifiable():
@@ -96,7 +97,7 @@ def test_conflicting_strong_sources_withhold():
 def test_sources_carry_url_and_quote():
     e = {"a": ev("a", "primary")}
     v = decide(CLAIM, [st("a", "supports")], e, NOW)
-    assert v.sources[0].url == "https://example.org/a" and v.sources[0].quote == "tekst"
+    assert v.sources[0].url == "https://example.org/a" and v.sources[0].quote == "MSZ wysłało pismo do Czech"
 
 
 def test_archive_warning():
@@ -117,3 +118,29 @@ def test_nothing_found_names_the_needed_source():
     why = template_why(decide(claim, [], {}, NOW), claim)
     assert "Potrzebne byłoby źródło takie jak: komunikat MSZ z datą wysłania pisma." in why
     assert "Brak wyniku w bazie nie oznacza, że to nieprawda." in why
+
+
+def test_single_factcheck_with_explicit_ruling_refutes():
+    # The fact-checker states its ruling in its own text ("to fałsz", "zdementowano"): that is a ruling
+    e = {"a": ev("a", "factcheck").model_copy(update={"text": "Ta informacja jest nieprawdziwa. Sprawdziliśmy."})}
+    assert decide(CLAIM, [st("a", "refutes")], e, NOW).label == "falszywe"
+    titled = {"a": ev("a", "factcheck").model_copy(update={"title": "Krąży nagranie. Uwaga - to fałsz"})}
+    assert decide(CLAIM, [st("a", "refutes")], titled, NOW).label == "falszywe"
+
+
+def test_explicit_ruling_does_not_make_a_fact_check_confirm():
+    e = {"a": ev("a", "factcheck").model_copy(update={"text": "To manipulacja."})}
+    assert decide(CLAIM, [st("a", "supports")], e, NOW).label == "brak_dowodow"
+
+
+def test_claimed_year_not_in_confirming_sources_is_misleading():
+    claim = Claim(id="c1", text="Alert o skażonej wodzie w Złotym Stoku wysłano w 2025 roku.", type="factual")
+    e = {"a": ev("a", "primary")}  # published 2026, text without 2025
+    q = "Alert: woda w Złotym Stoku niezdatna do picia"
+    v = decide(claim, [st("a", "supports", q)], e, NOW)
+    assert v.label == "wprowadzajace_w_blad" and "innego czasu" in v.reasons[0]
+    # the year in the source text or publication date keeps the confirmation
+    e2 = {"a": ev("a", "primary").model_copy(update={"text": "Komunikat z 2025 r."})}
+    assert decide(claim, [st("a", "supports", q)], e2, NOW).label == "potwierdzone"
+    claim26 = claim.model_copy(update={"text": "Alert o wodzie w Złotym Stoku wysłano w listopadzie 2026 roku."})
+    assert decide(claim26, [st("a", "supports", q)], e, NOW).label == "potwierdzone"

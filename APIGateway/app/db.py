@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Integer, String, Text, delete, select
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, delete, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -47,6 +47,30 @@ class AuditEvent(Base):
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
+class ModerationCase(Base):
+    """Sprawa dla moderatora (pętla informacji): podobne zgłoszenia bez rozstrzygnięcia w jednym miejscu.
+
+    status: open (zapisana) -> recommended (system rekomenduje przekazanie) -> forwarded (faktycznie
+    przekazana: webhook moderatora albo decyzja administratora) / closed (zamknięta przez moderatora).
+    """
+
+    __tablename__ = "moderation_cases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    claim: Mapped[str] = mapped_column(Text)
+    claim_key: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), index=True, default="open")
+    risk: Mapped[bool] = mapped_column(Boolean, default=False)
+    reports: Mapped[int] = mapped_column(Integer, default=1)
+    check_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    channels: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
+    forwarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    forwarded_to: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class Database:
     def __init__(self, url: str) -> None:
         options: dict[str, Any] = {} if url.startswith("sqlite") else {"pool_pre_ping": True, "pool_size": 5, "max_overflow": 10}
@@ -83,6 +107,15 @@ class Database:
     async def delete_check(self, check_id: str) -> bool:
         async with self.session() as s:
             result = await s.execute(delete(Check).where(Check.id == check_id))
+            # Minimalizacja danych: zgłoszenie znika też ze sprawy moderatora; pusta sprawa jest usuwana.
+            for case in (await s.execute(select(ModerationCase))).scalars():
+                if check_id in (case.check_ids or []):
+                    remaining = [c for c in case.check_ids if c != check_id]
+                    if remaining:
+                        case.check_ids = remaining
+                        case.reports = max(1, case.reports - 1)
+                    else:
+                        await s.delete(case)
             await s.commit()
             return (result.rowcount or 0) > 0
 

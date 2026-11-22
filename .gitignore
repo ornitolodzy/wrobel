@@ -21,3 +21,6 @@ dist/
 .DS_Store
 
 hacknation-llm-wiki
+
+# surowe wyniki ewaluacji (finalny raport jest w docs/wyniki/)
+eval/results/

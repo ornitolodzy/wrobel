@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 
+from app.cases import CaseDesk
 from app.config import Settings
 from app.db import Database
 from app.deps import Client, get_db, get_downstream, get_runtime, get_settings, rate_limit
@@ -20,12 +21,16 @@ _RESPONSES = {
 
 
 def get_runner(
+    request: Request,
     client: Client = Depends(rate_limit),
     db: Database = Depends(get_db),
     downstream: Downstream = Depends(get_downstream),
     runtime: RuntimeConfigStore = Depends(get_runtime),
+    settings: Settings = Depends(get_settings),
 ) -> CheckRunner:
-    return CheckRunner(db=db, downstream=downstream, runtime=runtime, client=client)
+    transport = getattr(request.app.state, "transport", None)
+    return CheckRunner(db=db, downstream=downstream, runtime=runtime, client=client,
+                       cases=CaseDesk(db, settings, transport=transport))
 
 
 @router.post("/claim", response_model=CheckResponse, responses=_RESPONSES, summary="Weryfikuje twierdzenie podane jako tekst")

@@ -36,7 +36,7 @@ def llm_handler(captured: list[dict] | None = None, response: httpx.Response | N
             if captured is not None:
                 captured.append(json.loads(request.content))
             return response or httpx.Response(200, json=LLM_OK)
-        if request.url.path == "/text-recognition-from-img":
+        if request.url.path == "/v1/ocr":  # kontrakt ImageRecognitionServcie
             return httpx.Response(200, json={"text": "Naruszono przestrzeń powietrzną dnia 20.11, kontakt: a@b.pl"})
         return httpx.Response(404)
 

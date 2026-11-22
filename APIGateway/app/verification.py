@@ -1,6 +1,7 @@
+import logging
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import status
 from fastapi.responses import JSONResponse
@@ -25,6 +26,11 @@ from app.schemas import (
 )
 from app.services import Downstream, DownstreamError, PageUnreadable
 
+if TYPE_CHECKING:
+    from app.cases import CaseDesk
+
+logger = logging.getLogger("gateway.verification")
+
 _MAX_PAGE_CHARS = 50_000
 
 _HTTP_STATUS = {
@@ -36,11 +42,13 @@ _HTTP_STATUS = {
 
 
 class CheckRunner:
-    def __init__(self, db: Database, downstream: Downstream, runtime: RuntimeConfigStore, client: Client) -> None:
+    def __init__(self, db: Database, downstream: Downstream, runtime: RuntimeConfigStore, client: Client,
+                 cases: "CaseDesk | None" = None) -> None:
         self.db = db
         self.downstream = downstream
         self.runtime = runtime
         self.client = client
+        self.cases = cases
 
     async def verify_claim(self, text: str) -> JSONResponse:
         masked, pii_types = mask_pii(text)
@@ -246,6 +254,12 @@ class CheckRunner:
                 live_search=live_search,
             )
 
+        if self.cases is not None and error is None:
+            try:  # pętla informacji nie może zepsuć samego sprawdzenia
+                response.cases = await self.cases.register(response, prior.check_id if prior else None)
+            except Exception:
+                logger.exception("Nie udało się zapisać sprawy moderatora dla %s", check_id)
+
         await self._persist(response, input_for_log, error, usage, pii_types)
 
         return JSONResponse(
@@ -287,6 +301,21 @@ class CheckRunner:
                 detail={"service": error.service, "code": error.code, "status": error.status.value},
             )
             return
+
+        security = (usage or {}).get("security") or {}
+        if security.get("injection_suspected") or security.get("injection_in_sources"):
+            # Scenariusz E: polecenia w treści zignorowane (potraktowane jako dane) i odnotowane.
+            await self.db.log_event(
+                "prompt_injection",
+                client=self.client.name,
+                check_id=response.check_id,
+                detail={
+                    "in_input": bool(security.get("injection_suspected")),
+                    "in_sources": bool(security.get("injection_in_sources")),
+                    "input_type": response.input_type.value,
+                    "verdicts": [c.verdict.value for c in response.claims],
+                },
+            )
 
         verdicts = [c.verdict.value for c in response.claims]
         await self.db.log_event(
