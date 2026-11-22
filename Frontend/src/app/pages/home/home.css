@@ -21,7 +21,7 @@
   border-radius: 12px;
 }
 
-.prawdowid-search-bar {
+.hero-bar {
   view-transition-name: wrobel-query;
 }
 
@@ -40,74 +40,6 @@
 .sending .status {
   opacity: 0;
   transition: opacity 150ms ease;
-}
-
-/* Faza „chat”: logo w lewym górnym rogu (mobile: na środku u góry) */
-.stage.chat {
-  display: block;
-  position: relative;
-  padding-bottom: 0;
-}
-
-.stage.chat .logo-link {
-  position: absolute;
-  z-index: 2; /* nad wzorem i wątkiem rozmowy (który ma górny padding 25dvh) */
-  top: 20px;
-  left: 8px;
-}
-
-.stage.chat app-logo {
-  font-size: 28px;
-}
-
-/* Kreska oddzielająca baner — wjeżdża od prawej, gdy logo doleci do rogu */
-.divider {
-  position: absolute;
-  top: 72px;
-  left: -16px;
-  right: -16px;
-  height: 1px;
-  background: var(--prawdowid-border-light);
-  transform-origin: right center;
-  animation: divider-in 700ms cubic-bezier(0.22, 1, 0.36, 1) 550ms both;
-}
-
-@keyframes divider-in {
-  from {
-    transform: scaleX(0);
-  }
-}
-
-/* Delikatny wzór tła pod banerem: przesunięta siatka kropek w kolorze wróbla,
-   wyłania się od kreski w dół. Czysty CSS — zero dodatkowych requestów. */
-.pattern {
-  --dot: rgb(122 92 67 / 0.2);
-  position: absolute;
-  top: 73px;
-  left: -16px;
-  right: -16px;
-  bottom: 0;
-  pointer-events: none;
-  background-image:
-    radial-gradient(circle, var(--dot) 1.2px, transparent 1.7px),
-    radial-gradient(circle, var(--dot) 1.2px, transparent 1.7px);
-  background-size: 28px 28px;
-  background-position:
-    0 0,
-    14px 14px;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 160px);
-  mask-image: linear-gradient(to bottom, transparent, #000 160px);
-  animation: pattern-in 900ms ease 800ms both;
-}
-
-@keyframes pattern-in {
-  from {
-    opacity: 0;
-  }
-}
-
-.stage.chat app-chat-thread {
-  position: relative; /* nad wzorem */
 }
 
 /* Owijka: status pod paskiem jest pozycjonowany absolutnie, więc nie przesuwa wyśrodkowania */
@@ -131,11 +63,6 @@
     padding-bottom: 0;
     gap: 28px;
   }
-  .stage.chat .logo-link {
-    left: 50%;
-    top: 16px;
-    translate: -50% 0;
-  }
 }
 
 /* SIW §7 */
@@ -149,10 +76,15 @@
   padding: 4px 6px 4px 20px;
   width: 100%;
   max-width: 680px;
+  box-shadow: var(--prawdowid-shadow-raised);
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
 }
 
 .prawdowid-search-bar:focus-within {
   border-color: var(--prawdowid-accent-hover);
+  box-shadow: var(--prawdowid-focus-glow), var(--prawdowid-shadow-raised);
 }
 
 .lupa {

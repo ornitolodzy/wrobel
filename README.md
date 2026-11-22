@@ -7,7 +7,7 @@ spięte jednym stackiem Docker Compose i jedną bazą Postgres.
  Przeglądarka ──► proxy :4200 (nginx) ──► Frontend (Angular SSR)
                        │ /api, /ws, /health
                        ▼
-                 APIGateway :8000 ──────────► ImageRecognitionServcie (OCR) :8001
+ Discord ──► DiscordBot ──► APIGateway :8000 ──────────► ImageRecognitionServcie (OCR) :8001
                    │        │
                    │        └──── URL ──────► PageScrapper :8002 ──/ingest──┐
                    ▼                                                        ▼
@@ -19,8 +19,10 @@ spięte jednym stackiem Docker Compose i jedną bazą Postgres.
 | [APIGateway/](APIGateway/) | brzeg systemu: walidacja, rate limit, PII, audit log | FastAPI |
 | [VerificationPipeline/](VerificationPipeline/) | twierdzenia → dowody → stanowisko → werdykt (reguły) | Kedro, FastAPI, LiteLLM |
 | [PageScrapper/](PageScrapper/) | pobieranie stron + budowa korpusu ze źródeł | FastAPI, Playwright |
+| [ContextGraph/](ContextGraph/) | graf wiedzy (dokumenty + zdarzenia z Bielika), profil `graph` | FastAPI, Neo4j |
 | [ImageRecognitionServcie/](ImageRecognitionServcie/) | OCR obrazów | FastAPI, PaddleOCR |
 | [Frontend/](Frontend/) | interfejs webowy | Angular 21 SSR |
+| [DiscordBot/](DiscordBot/) | kanał 2: bot Discord (`/wrobel`, DM, @wzmianka), adapter na gateway | discord.py |
 
 ## Jak serwisy są połączone
 
@@ -33,6 +35,8 @@ Połączenia są zdefiniowane w jednym miejscu: [docker-compose.yml](docker-comp
 | APIGateway | PageScrapper | `PAGE_SCRAPPER_URL` |
 | APIGateway | OCR | `IMAGE_RECOGNITION_URL` |
 | PageScrapper | VerificationPipeline `/ingest` | `RAG_INGEST_URL` |
+| PageScrapper | ContextGraph `/ingest/document` | `make graph-sync` ([ContextGraph/README.md](ContextGraph/README.md)) |
+| DiscordBot (profil `discord`) | APIGateway `/api/v1/verify/*` | `GATEWAY_URL` |
 | wszystkie | Postgres | `DATABASE_URL` |
 | Frontend (`ng serve`) | APIGateway `:8000` | [Frontend/proxy.conf.json](Frontend/proxy.conf.json) |
 
@@ -47,7 +51,8 @@ wrobel/
 ├── proxy/nginx.conf            reverse proxy :4200
 ├── .github/workflows/          CI wszystkich serwisów (filtrowane po ścieżkach)
 ├── APIGateway/  Frontend/  PageScrapper/  ImageRecognitionServcie/
-└── VerificationPipeline/       + Dockerfile i samodzielny docker-compose.yml (pipeline + własny Postgres)
+├── VerificationPipeline/       + Dockerfile i samodzielny docker-compose.yml (pipeline + własny Postgres)
+└── DiscordBot/                 bot Discord (kanał 2) + Dockerfile, uruchamiany z profilem `discord`
 ```
 
 ## Serwisy
@@ -60,6 +65,7 @@ wrobel/
 | `page-scrapper` | [PageScrapper/](PageScrapper/) | `127.0.0.1:8002` | `page-scrapper:8002` | pobieranie stron z linków + budowa bazy wiedzy |
 | `ocr` | [ImageRecognitionServcie/](ImageRecognitionServcie/) | `127.0.0.1:8001` | `ocr:8000` | odczyt tekstu z obrazów |
 | `verification-pipeline` | [VerificationPipeline/](VerificationPipeline/) | `127.0.0.1:8003` | `verification-pipeline:8000` | weryfikacja twierdzeń (RAG + reguły werdyktu), indeks korpusu |
+| `discord-bot` (profil `discord`) | [DiscordBot/](DiscordBot/) | — | — | kanał 2: `/wrobel`, menu „Sprawdź w Wróblu”, DM, @wzmianka → API Gateway |
 | `postgres` (pgvector/pg16) | — | — | `postgres:5432` | jedna baza danych dla wszystkich serwisów |
 
 Scrapper, OCR i pipeline nie mają autoryzacji, dlatego ich porty są dostępne tylko z Twojego komputera (`127.0.0.1`).
@@ -81,12 +87,14 @@ make start            # to samo co ./start.sh
 3. tworzy `.env` z [.env.example](.env.example) i ostrzega, jeśli nie ma klucza LLM;
 4. buduje obrazy i uruchamia stack, czekając, aż wszystkie healthchecki będą zielone (przy błędzie wypisuje logi);
 5. sprawdza połączenia gateway → pipeline / scrapper / OCR oraz proxy :4200;
-6. jeśli baza wiedzy jest pusta, uruchamia pierwsze pobranie źródeł (scrapper → pipeline).
+6. jeśli baza wiedzy jest pusta, uruchamia pierwsze pobranie źródeł (scrapper → pipeline);
+7. jeśli w `.env` jest `DISCORD_TOKEN`, włącza bota Discord (profil `discord`) i wypisuje link do dodania go na serwer.
 
 | Opcja | Działanie |
 |---|---|
 | `--no-build` | start bez przebudowy obrazów |
 | `--no-scrape` | bez pierwszego pobrania źródeł |
+| `--graph` | dodatkowo ContextGraph + Neo4j (profil `graph`) i kopia dokumentów scrappera do grafu |
 
 Zmienne: `ADMIN_API_KEY`, `WAIT_TIMEOUT` (sekundy, domyślnie 900). Bez skryptu: `docker compose up -d --build`.
 
@@ -123,6 +131,18 @@ Wszystkie wpisy w [.env.example](.env.example) są opcjonalne:
   albo `mistral/mistral-large-latest` z `MISTRAL_API_KEY`. Po zmianie `.env` wystarczy
   `docker compose up -d verification-pipeline`, bez przebudowy.
 - `GOOGLE_FACTCHECK_API_KEY`, `EUVSDISINFO_TOKEN`: bez nich te źródła scrappera są pomijane.
+
+### 2b. (Opcjonalnie) bot Discord
+
+1. https://discord.com/developers/applications → **New Application** („Wróbel”) → zakładka **Bot** → **Reset Token**.
+2. Wklej token do `.env`: `DISCORD_TOKEN=...`. Opcjonalnie dodaj `DISCORD_GUILD_ID=<id serwera testowego>`,
+   żeby komendy pojawiły się tam od razu.
+3. Uruchom `./start.sh` (albo `docker compose --profile discord up -d --build`). Skrypt wypisze **link do dodania
+   bota na serwer**; jest też w `docker compose logs discord-bot`.
+4. Na Discordzie: `/wrobel tekst: ...`, prawy klik na wiadomość → **Aplikacje → Sprawdź w Wróblu**, DM do bota
+   albo `@Wróbel ...` na kanale.
+
+Bez tokena bot się nie uruchamia, a reszta stacku działa normalnie. Szczegóły: [DiscordBot/README.md](DiscordBot/README.md).
 
 ### 3. Zbuduj i uruchom
 
@@ -386,9 +406,14 @@ Mapowanie werdyktów pipeline'u na kontrakt gatewaya: `potwierdzone` → `confir
 | `SCRAPE_ON_STARTUP` | page-scrapper | `false` | czy pobierać źródła zaraz po starcie |
 | `RAG_INGEST_URL` | page-scrapper | `http://verification-pipeline:8000/ingest` | gdzie wysyłać nowe dokumenty do indeksu |
 | `PRAWDOWID_LLM_PROVIDER` / `PRAWDOWID_LLM_MODEL` | verification-pipeline | z `.env`; puste = `mock` | model LLM wszystkich ról (LiteLLM: `anthropic/...`, `mistral/...`, `openai/...` + `PRAWDOWID_LLM_API_BASE`) |
+| `PRAWDOWID_LLM_JSON_MODE` | verification-pipeline | puste = `auto` | `example`: przykład JSON w prompcie zamiast schematu (Bielik Q4 czasem odsyła schemat) |
+| `PRAWDOWID_RETRIEVAL_TOP_K` / `PRAWDOWID_MAX_CONTEXT_CHARS` | verification-pipeline | puste = `conf/` (8 / 12000) | mniej dowodów w prompcie dla modeli z małym oknem (Bielik w Ollamie: 4096 tokenów → `5` / `4500`) |
 | `PRAWDOWID_ENV` | verification-pipeline | `docker` | nakładka [conf/docker/parameters.yml](VerificationPipeline/conf/docker/parameters.yml): retrieval z Postgresa, embeddingi `mock` |
 | `PRAWDOWID_SYNC_ON_STARTUP` | verification-pipeline | `true` | przy starcie indeksuje dokumenty zebrane wcześniej przez scrapper |
 | `OCR_LANGS` | ocr | `pl,en` | języki OCR |
+| `DISCORD_TOKEN` | discord-bot | z `.env`, pusty = bot wyłączony | token bota z Discord Developer Portal |
+| `DISCORD_GUILD_ID` | discord-bot | pusty | serwer testowy: komendy widoczne natychmiast |
+| `DISCORD_USER_LIMIT_PER_MINUTE` | discord-bot | `5` | limit zapytań na użytkownika (gateway limituje cały bot jednym IP) |
 
 ## Rozwiązywanie problemów
 
@@ -418,6 +443,7 @@ make build S=page-scrapper && make up
 make dev-backend                 # backend w Dockerze...
 make dev-frontend                # ...i Angular z hot reload na :4200 (proxy do gatewaya)
 make test                        # testy serwisów Pythona (lokalnie)
+make graph-up && make graph-sync # ContextGraph (Neo4j) obok stacku + dokumenty ze scrapera
 ```
 
 CI ([.github/workflows/](.github/workflows/)) uruchamia testy tylko dla serwisów zmienionych w danym commicie

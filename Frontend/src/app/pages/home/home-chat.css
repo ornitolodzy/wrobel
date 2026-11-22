@@ -1,0 +1,137 @@
+/* Układ rozmowy (faza „chat”) — osobny plik, żeby style komponentu mieściły się w budżecie */
+
+.stage.chat {
+  position: relative;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  padding-bottom: 0;
+}
+
+/* logo przypięte w lewym górnym rogu (mobile: na środku u góry) */
+.stage.chat .logo-link {
+  position: fixed;
+  z-index: 3;
+  top: 20px;
+  left: 24px;
+}
+
+.stage.chat app-logo {
+  font-size: 28px;
+}
+
+/* Baner: przyklejony u góry, półprzezroczysty z rozmyciem treści pod spodem */
+.chat-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 73px;
+  margin: 0 -16px;
+  background: color-mix(in srgb, var(--prawdowid-bg-canvas) 72%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  backdrop-filter: blur(12px) saturate(1.2);
+}
+
+/* Kreska oddzielająca baner — wjeżdża od prawej, gdy logo doleci do rogu */
+.divider {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--prawdowid-border-light);
+  transform-origin: right center;
+  animation: divider-in 700ms cubic-bezier(0.22, 1, 0.36, 1) 550ms both;
+}
+
+@keyframes divider-in {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* Delikatny wzór tła pod banerem: przesunięta siatka kropek w kolorze wróbla,
+   wyłania się od kreski w dół. Czysty CSS — zero dodatkowych requestów. */
+.pattern {
+  --dot: rgb(122 92 67 / 0.2);
+  position: absolute;
+  top: 73px;
+  left: -16px;
+  right: -16px;
+  bottom: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, var(--dot) 1.2px, transparent 1.7px),
+    radial-gradient(circle, var(--dot) 1.2px, transparent 1.7px);
+  background-size: 28px 28px;
+  background-position:
+    0 0,
+    14px 14px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 160px);
+  mask-image: linear-gradient(to bottom, transparent, #000 160px);
+  animation: pattern-in 900ms ease 800ms both;
+}
+
+@keyframes pattern-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.stage.chat app-chat-thread {
+  flex: 1;
+  position: relative; /* nad wzorem */
+}
+
+/* Pole na kolejne pytanie — wjeżdża od dołu i zostaje przyklejone do dołu ekranu */
+.composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  margin: 0 -16px;
+  padding: 20px 16px calc(16px + env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--prawdowid-bg-canvas) 45%);
+  animation: composer-in 650ms cubic-bezier(0.22, 1, 0.36, 1) 950ms both;
+}
+
+.composer .prawdowid-search-bar {
+  max-width: 760px;
+}
+
+.composer .status {
+  position: absolute;
+  bottom: calc(100% - 12px);
+  left: 0;
+  right: 0;
+  text-align: center;
+}
+
+@keyframes composer-in {
+  from {
+    transform: translateY(110%);
+  }
+}
+
+/* Desktop: pasek nie wchodzi pod FAB Discorda (prawy dolny róg) przy wąskim oknie / dużym zoomie.
+   Margines symetryczny, żeby pasek został na środku: 24px odstęp FAB + 52px FAB + 16px luzu. */
+@media (min-width: 601px) {
+  .composer {
+    padding-inline: 92px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Nad przyklejoną stopką (w niej FAB Discorda) zamiast przy samej krawędzi ekranu */
+  .composer {
+    bottom: calc(var(--prawdowid-footer-h-mobile) + env(safe-area-inset-bottom));
+    padding-bottom: 8px;
+  }
+
+  .stage.chat .logo-link {
+    left: 50%;
+    top: 16px;
+    translate: -50% 0;
+  }
+}

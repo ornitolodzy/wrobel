@@ -1,16 +1,18 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { DiscordFab } from './layout/discord-fab/discord-fab';
 import { Footer } from './layout/footer/footer';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, Footer],
+  imports: [RouterOutlet, Footer, DiscordFab],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main>
       <router-outlet />
     </main>
     <app-footer />
+    <app-discord-fab />
   `,
   styles: `
     :host {

@@ -72,6 +72,17 @@ def test_self_hosted_model_uses_json_object_with_schema_in_prompt(calls):
     assert log[0]["temperature"] == 0 and log[0]["api_base"].endswith("/v1")
 
 
+def test_example_mode_shows_example_not_schema_and_retries_fresh(calls):
+    log, queue = calls
+    queue += [resp('{"$defs": {}, "properties": {}}'), resp(GOOD)]   # model echoed a schema first
+    p = LiteLLMProvider({"model": "openai/bielik", "json_mode": "example"}, {})
+    res = p.complete_json("sys", "user", ClaimsOut)
+    system = log[0]["messages"][0]["content"]
+    assert "$defs" not in system and '"claims": [{"text": "..."' in system and "factual|" in system
+    assert len(log) == 2 and log[1]["messages"] == log[0]["messages"]    # same prompt, nothing appended
+    assert res.parsed.claims[0].text == "MSZ wysłało pismo."
+
+
 def test_invalid_json_is_repaired_once(calls):
     log, queue = calls
     queue += [resp('{"claims": [{"text": "x"}]}'), resp(GOOD)]

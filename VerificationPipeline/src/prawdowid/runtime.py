@@ -51,6 +51,7 @@ def _env_overrides(params: dict) -> dict:
       PRAWDOWID_LLM_PROVIDER  mock | litellm | nli          (all roles)
       PRAWDOWID_LLM_MODEL     LiteLLM model string           (all roles)
       PRAWDOWID_LLM_API_BASE  e.g. vLLM/Ollama endpoint for Bielik
+      PRAWDOWID_LLM_JSON_MODE auto | schema | object | example (all roles; example for small local models)
       PRAWDOWID_RETRIEVAL_BACKEND  mock | postgres | neo4j
       PRAWDOWID_EMBEDDINGS_PROVIDER  mock | ollama
       PRAWDOWID_EMBEDDINGS_MODEL     e.g. bge-m3 (corpus and queries must use the same one)
@@ -59,11 +60,15 @@ def _env_overrides(params: dict) -> dict:
       PRAWDOWID_RERANKER_PROVIDER    local (CPU, image with WITH_RERANK=true) | remote (GPU server)
       PRAWDOWID_RERANKER_API_BASE    e.g. http://host.docker.internal:8081 (deploy/rerank-server)
       PRAWDOWID_RERANKER_FALLBACK    local = use the CPU reranker if the server is unreachable
+      PRAWDOWID_RETRIEVAL_TOP_K    evidence chunks per claim (retrieval.top_k)
+      PRAWDOWID_MAX_CONTEXT_CHARS  evidence text budget (retrieval.max_context_chars); small
+                                   context windows, e.g. Ollama's default 4096 tokens for Bielik
     """
     provider = os.environ.get("PRAWDOWID_LLM_PROVIDER", "").strip()
     model = os.environ.get("PRAWDOWID_LLM_MODEL", "").strip()
     api_base = os.environ.get("PRAWDOWID_LLM_API_BASE", "").strip()
-    if provider or model or api_base:
+    json_mode = os.environ.get("PRAWDOWID_LLM_JSON_MODE", "").strip()
+    if provider or model or api_base or json_mode:
         roles = params["llm"]["roles"]
         for role, cfg in roles.items():
             cfg = dict(cfg)
@@ -73,6 +78,8 @@ def _env_overrides(params: dict) -> dict:
                 cfg["model"] = model
             if api_base:
                 cfg["api_base"] = api_base
+            if json_mode:
+                cfg["json_mode"] = json_mode
             roles[role] = cfg
     if backend := os.environ.get("PRAWDOWID_RETRIEVAL_BACKEND", "").strip():
         params["retrieval"]["backend"] = backend
@@ -89,6 +96,9 @@ def _env_overrides(params: dict) -> dict:
             rr[key] = value
     if rr or "reranker" in params:
         params["reranker"] = rr
+    for var, key in (("PRAWDOWID_RETRIEVAL_TOP_K", "top_k"), ("PRAWDOWID_MAX_CONTEXT_CHARS", "max_context_chars")):
+        if value := os.environ.get(var, "").strip():
+            params["retrieval"][key] = int(value)
     return params
 
 

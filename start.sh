@@ -7,11 +7,15 @@
 #   4. buduje obrazy i uruchamia stack, czekając aż serwisy będą zdrowe
 #   5. sprawdza połączenia: gateway -> pipeline / scrapper / OCR
 #   6. przy pustej bazie wiedzy uruchamia pierwsze pobranie źródeł (scrapper -> pipeline)
+#   7. z --graph: ContextGraph + Neo4j (profil "graph") i kopia dokumentów scrappera do grafu
 #
-# Użycie (Git Bash na Windows, Linux, macOS), z dowolnego katalogu (albo `make start`):
+# Użycie (Git Bash na Windows, Linux, macOS), z dowolnego katalogu (albo `make start ARGS=...`):
 #   ./start.sh              pełny start
 #   ./start.sh --no-build   start bez przebudowy obrazów
 #   ./start.sh --no-scrape  bez pierwszego pobrania źródeł
+#   ./start.sh --graph      dodatkowo graf wiedzy (ContextGraph :8100, Neo4j Browser :7474)
+#
+# Bot Discord (DiscordBot/) startuje sam, gdy w .env jest DISCORD_TOKEN (profil compose "discord").
 
 set -euo pipefail
 
@@ -19,6 +23,8 @@ set -euo pipefail
 ADMIN_API_KEY="${ADMIN_API_KEY:-change-me-admin}"   # musi być zgodny z docker-compose.yml
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
 APP_URL="${APP_URL:-http://localhost:4200}"
+GRAPH_URL="${GRAPH_URL:-http://127.0.0.1:8100}"
+SCRAPPER_URL="${SCRAPPER_URL:-http://127.0.0.1:8002}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-900}"                 # sekundy na healthchecki (pierwszy build OCR jest długi)
 
 # serwisy (katalogi w monorepo) budowane przez docker-compose.yml
@@ -26,14 +32,17 @@ SERVICES=(APIGateway Frontend ImageRecognitionServcie PageScrapper VerificationP
 
 BUILD=true
 SCRAPE=true
+GRAPH=false
 for arg in "$@"; do
   case "$arg" in
     --no-build) BUILD=false ;;
     --no-scrape) SCRAPE=false ;;
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --graph) GRAPH=true ;;
+    -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Nieznana opcja: $arg (zobacz --help)" >&2; exit 2 ;;
   esac
 done
+$GRAPH && SERVICES+=(ContextGraph)
 
 # ------------------------------------------------------------------ wyjście
 if [ -t 1 ]; then
@@ -82,9 +91,31 @@ else
   cp .env.example .env
   ok "utworzono .env z .env.example"
 fi
-if ! grep -qE '^(ANTHROPIC|MISTRAL|OPENAI)_API_KEY=.+' .env; then
-  warn "Brak klucza LLM w .env: werdykty będą 'brak dowodów' (pipeline bez modelu nie ocenia źródeł)."
-  warn "Ustaw PRAWDOWID_LLM_PROVIDER, PRAWDOWID_LLM_MODEL i klucz w $ROOT/.env"
+# Bot Discord: profil "discord" tylko z tokenem i kodem bota (bez nich reszta stacku startuje normalnie).
+DISCORD_ENABLED=false
+if grep -qE '^DISCORD_TOKEN=.+' .env && [ -d "$ROOT/DiscordBot/bot" ]; then
+  DISCORD_ENABLED=true
+  export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}discord"
+  ok "bot Discord włączony (DISCORD_TOKEN w .env)"
+elif grep -qE '^DISCORD_TOKEN=.+' .env; then
+  warn "DISCORD_TOKEN jest w .env, ale brak kodu bota ($ROOT/DiscordBot), pomijam bota"
+else
+  warn "bot Discord wyłączony: brak DISCORD_TOKEN w .env (instrukcja: DiscordBot/README.md)"
+fi
+if $GRAPH; then
+  export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}graph"
+  ok "graf wiedzy włączony (--graph)"
+fi
+# Model bez klucza (Bielik na własnym serwerze) wystarczy wskazać przez PRAWDOWID_LLM_API_BASE.
+if ! grep -qE '^((ANTHROPIC|MISTRAL|OPENAI)_API_KEY|PRAWDOWID_LLM_API_BASE)=.+' .env; then
+  warn "Brak modelu LLM w .env: werdykty będą 'brak dowodów' (pipeline bez modelu nie ocenia źródeł)."
+  warn "Ustaw PRAWDOWID_LLM_PROVIDER, PRAWDOWID_LLM_MODEL i klucz (albo PRAWDOWID_LLM_API_BASE) w $ROOT/.env"
+fi
+if grep -qE '^PRAWDOWID_LLM_API_BASE=.*host\.docker\.internal' .env; then
+  api_port="$(grep -E '^PRAWDOWID_LLM_API_BASE=' .env | grep -oE ':[0-9]+' | tail -1 | tr -d ':')"
+  if [ -n "$api_port" ] && ! curl -sS -m 5 -o /dev/null "http://127.0.0.1:$api_port/" 2>/dev/null; then
+    warn "Model LLM na hoście (port $api_port) nie odpowiada. Tunel SSH do serwera z Bielikiem jest otwarty?"
+  fi
 fi
 
 # ------------------------------------------------------------------ 4. build + start
@@ -121,6 +152,11 @@ for svc in llm page_scrapper image_recognition; do
   esac
 done
 curl -fsS -o /dev/null "$APP_URL/" && ok "aplikacja przez proxy: $APP_URL" || warn "proxy $APP_URL nie odpowiada"
+if $DISCORD_ENABLED; then
+  invite="$("${COMPOSE[@]}" logs discord-bot 2>/dev/null | grep -oE 'https://discord\.com/oauth2/authorize[^ ]+' | tail -1 || true)"
+  ok "bot Discord połączony z Discordem${invite:+, link do dodania na serwer:}"
+  [ -n "$invite" ] && echo "    $invite"
+fi
 
 # ------------------------------------------------------------------ 6. baza wiedzy
 step "Baza wiedzy"
@@ -143,6 +179,26 @@ else
   fi
 fi
 
+# ------------------------------------------------------------------ 7. graf wiedzy (--graph)
+if $GRAPH; then
+  step "Graf wiedzy (ContextGraph)"
+  if curl -fsS -m 10 "$GRAPH_URL/health" >/dev/null 2>&1; then
+    ok "ContextGraph: $GRAPH_URL"
+    # Scrapper wysyła nowe dokumenty do pipeline'u (RAG_INGEST_URL), do grafu trafiają przez tę kopię.
+    if command -v python >/dev/null 2>&1 && python -c "import httpx" >/dev/null 2>&1; then
+      if python "$ROOT/ContextGraph/scripts/sync_from_scraper.py" --scraper "$SCRAPPER_URL" --graph "$GRAPH_URL"; then
+        ok "dokumenty scrappera skopiowane do grafu (po pobieraniu źródeł powtórz: make graph-sync)"
+      else
+        warn "kopia do grafu nie powiodła się (make graph-sync)"
+      fi
+    else
+      warn "brak python z httpx: skopiuj dokumenty później (pip install httpx && make graph-sync)"
+    fi
+  else
+    warn "ContextGraph nie odpowiada pod $GRAPH_URL (${COMPOSE[*]} logs context-graph)"
+  fi
+fi
+
 # ------------------------------------------------------------------ podsumowanie
 step "Gotowe"
 cat <<EOF
@@ -152,6 +208,12 @@ cat <<EOF
   Pipeline (docs)      http://127.0.0.1:8003/docs
   PageScrapper (docs)  http://127.0.0.1:8002/docs
   OCR (docs)           http://127.0.0.1:8001/docs
+EOF
+$GRAPH && cat <<EOF
+  ContextGraph (docs)  $GRAPH_URL/docs
+  Neo4j Browser        http://localhost:7474   (neo4j / NEO4J_PASSWORD z .env)
+EOF
+cat <<EOF
 
   Logi:       make logs        (albo: ${COMPOSE[*]} logs -f, w $ROOT)
   Zatrzymaj:  make down        (albo: ${COMPOSE[*]} down, w $ROOT)

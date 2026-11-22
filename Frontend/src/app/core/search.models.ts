@@ -7,7 +7,26 @@ export interface SearchResult {
   snippet?: string;
   source?: string;
   date?: string;
+  /** Werdykt tego twierdzenia (gdy w pytaniu było kilka twierdzeń). */
+  verdict?: Verdict;
+  /** Siła przesłanek po polsku (wysoka / średnia / niska). */
+  strength?: string;
+  /** Wszystkie źródła twierdzenia, z linkiem do artykułu i cytatem. */
+  sources?: SourceLink[];
 }
+
+export interface SourceLink {
+  url: string;
+  host: string;
+  title: string;
+  publisher?: string;
+  date?: string;
+  kind?: string;
+  quote?: string;
+}
+
+/** Werdykt weryfikacji informacji (tag w dymku bota). */
+export type Verdict = 'true' | 'false' | 'misleading' | 'unverified' | 'unverifiable';
 
 /** Klient -> serwer: `{ type: 'search', payload: SearchRequestPayload }` */
 export interface SearchRequestPayload {
@@ -20,4 +39,31 @@ export interface SearchRequestPayload {
 export interface SearchResultsPayload {
   query: string;
   results: SearchResult[];
+  verdict?: Verdict;
 }
+
+// ---------- Model rozmowy (tylko front) ----------
+
+export interface UserMessage {
+  id: number;
+  role: 'user';
+  text: string;
+  /** Object URL dociętego zdjęcia (zwalniany przy resecie rozmowy). */
+  imageUrl: string | null;
+  /** Kiedy użytkownik wysłał pytanie (znacznik nad dymkiem). */
+  sentAt: Date;
+}
+
+export interface BotMessage {
+  id: number;
+  role: 'bot';
+  /** Zapytanie, na które odpowiada — do dopasowania odpowiedzi z WebSocketu. */
+  query: string;
+  /** `null` = czekamy na odpowiedź (loader). */
+  results: SearchResult[] | null;
+  verdict: Verdict | null;
+  /** Kiedy przyszła odpowiedź; `null` = jeszcze czekamy. */
+  answeredAt: Date | null;
+}
+
+export type ChatMessage = UserMessage | BotMessage;

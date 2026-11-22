@@ -1,40 +1,100 @@
-<div class="msg user">
-  @if (imageUrl(); as url) {
-    <img class="thumb" [src]="url" alt="Dołączone zdjęcie" />
-  }
-  @if (query()) {
-    <p>{{ query() }}</p>
-  }
-</div>
-
-<div class="msg bot" aria-live="polite">
-  <img class="avatar" src="/logo.png" width="40" height="40" alt="" />
-
-  @if (results(); as list) {
-    <div class="bubble results">
-      @for (r of list; track r.id) {
-        <article class="result">
-          <a [href]="r.url" rel="noopener">{{ r.title }}</a>
-          @if (r.snippet) {
-            <p>{{ r.snippet }}</p>
-          }
-          @if (r.source || r.date) {
-            <small class="meta"
-              >{{ r.source }}
-              @if (r.date) {
-                · {{ r.date }}
-              }
-            </small>
-          }
-        </article>
-      } @empty {
-        <p class="meta">Brak wyników.</p>
+@for (m of messages(); track m.id; let i = $index) {
+  @if (m.role === 'user') {
+    <time class="stamp user" [attr.datetime]="m.sentAt.toISOString()">{{
+      m.sentAt | date: STAMP
+    }}</time>
+    <div class="msg user" [class.first]="i === 0">
+      @if (m.imageUrl; as url) {
+        <img class="thumb" [src]="url" alt="Dołączone zdjęcie" />
+      }
+      @if (m.text) {
+        <p>{{ m.text }}</p>
       }
     </div>
-  } @else {
-    <div class="bubble" role="status">
-      <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span>{{ status() === 'open' ? 'Szukam odpowiedzi…' : 'Łączenie z serwerem…' }}</span>
+  }
+
+  @if (m.role === 'bot') {
+    @if (m.answeredAt; as at) {
+      <time class="stamp bot" [attr.datetime]="at.toISOString()">{{ at | date: STAMP }}</time>
+    }
+    <div class="msg bot" [class.intro]="i === 1" aria-live="polite">
+      <img
+        class="avatar"
+        [class.pecking]="!m.results"
+        [class.tilt]="m.results"
+        src="/logo.png"
+        width="40"
+        height="40"
+        alt=""
+      />
+
+      <div class="bubble">
+        <!-- Miejsce na tag werdyktu: szkielet w trakcie, tag po odpowiedzi -->
+        @if (!m.results) {
+          <span class="tag-skeleton" aria-hidden="true"></span>
+        } @else if (m.verdict) {
+          <app-verdict-tag [verdict]="m.verdict" />
+        }
+
+        @if (m.results; as list) {
+          @for (r of list; track r.id) {
+            <article class="result">
+              @if (r.verdict && list.length > 1) {
+                <app-verdict-tag [verdict]="r.verdict" />
+              }
+              @if (r.sources?.length || r.url === '#') {
+                <h3 class="claim">{{ r.title }}</h3>
+              } @else {
+                <a [href]="r.url" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+              }
+              @if (r.strength) {
+                <small class="meta">siła przesłanek: {{ r.strength }}</small>
+              }
+              @if (r.snippet) {
+                <p>{{ r.snippet }}</p>
+              }
+              @if (r.sources?.length) {
+                <ol class="sources" aria-label="Źródła">
+                  @for (s of r.sources; track $index) {
+                    <li class="source">
+                      <a [href]="s.url" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>
+                      <small class="meta">
+                        {{ s.publisher ?? s.host }}
+                        @if (s.date) {
+                          · {{ s.date }}
+                        }
+                        @if (s.kind) {
+                          · {{ s.kind }}
+                        }
+                      </small>
+                      @if (s.quote) {
+                        <blockquote>„{{ s.quote }}”</blockquote>
+                      }
+                      <a class="link" [href]="s.url" target="_blank" rel="noopener noreferrer">{{
+                        s.url
+                      }}</a>
+                    </li>
+                  }
+                </ol>
+              } @else if (r.source || r.date) {
+                <small class="meta"
+                  >{{ r.source }}
+                  @if (r.date) {
+                    · {{ r.date }}
+                  }
+                </small>
+              }
+            </article>
+          } @empty {
+            <p class="meta">Brak wyników.</p>
+          }
+        } @else {
+          <div class="loading" role="status">
+            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>{{ status() === 'open' ? 'Szukam odpowiedzi…' : 'Łączenie z serwerem…' }}</span>
+          </div>
+        }
+      </div>
     </div>
   }
-</div>
+}

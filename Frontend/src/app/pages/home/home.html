@@ -1,107 +1,113 @@
 <section class="stage" [class.sending]="phase() === 'sending'" [class.chat]="phase() === 'chat'">
   <h1 class="visually-hidden">wróbel — wyszukiwarka</h1>
   <a class="logo-link" href="/" aria-label="wróbel — nowe wyszukiwanie" (click)="reset($event)">
-    <app-logo />
+    <app-logo [animated]="phase() === 'idle'" />
   </a>
 
   @if (phase() === 'chat') {
     <div class="pattern" aria-hidden="true"></div>
-    <div class="divider" aria-hidden="true"></div>
-    <app-chat-thread
-      [query]="query()"
-      [imageUrl]="image()?.url ?? null"
-      [status]="status()"
-      [results]="results()"
-    />
+    <div class="chat-header" aria-hidden="true"><div class="divider"></div></div>
+
+    <app-chat-thread [messages]="messages()" [status]="status()" />
+
+    <div class="composer">
+      <ng-container [ngTemplateOutlet]="searchBar" [ngTemplateOutletContext]="{ composer: true }" />
+    </div>
   } @else {
     <div class="search-wrap">
-      <form
-        class="prawdowid-search-bar"
-        role="search"
-        [class.dropping]="dragging()"
-        (submit)="search($event)"
-      >
-        <svg class="lupa" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" />
-          <path d="m20 20-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-        </svg>
-
-        @if (image(); as img) {
-          <span class="thumb">
-            <img [src]="img.url" alt="Dołączone zdjęcie" />
-            <button type="button" class="thumb-x" aria-label="Usuń zdjęcie" (click)="removeImage()">
-              <svg viewBox="0 0 12 12" aria-hidden="true">
-                <path
-                  d="M3 3l6 6M9 3l-6 6"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </button>
-          </span>
-        }
-
-        <label class="visually-hidden" for="q">Szukaj</label>
-        <input
-          id="q"
-          type="search"
-          name="q"
-          autocomplete="off"
-          enterkeyhint="search"
-          [placeholder]="dragging() ? 'Upuść zdjęcie…' : 'Wpisz zapytanie…'"
-          [value]="query()"
-          (input)="onInput($event)"
-        />
-        <button
-          type="button"
-          class="photo-btn"
-          aria-label="Dodaj zdjęcie"
-          [attr.aria-disabled]="image() ? 'true' : null"
-          [title]="image() ? ONE_IMAGE_HINT : 'Dodaj zdjęcie (możesz też wkleić lub przeciągnąć)'"
-          (click)="image() ? showOneImageHint() : fileInput.click()"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect
-              x="3"
-              y="5"
-              width="18"
-              height="14"
-              rx="3"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-            />
-            <circle cx="9" cy="10" r="1.6" fill="currentColor" />
-            <path
-              d="m4 17 5-5 4 4 2.5-2.5L20 18"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </button>
-        <input #fileInput type="file" accept="image/*" hidden (change)="onFileChange($event)" />
-        <button class="prawdowid-search-button" type="submit" aria-label="Szukaj">
-          <span class="btn-label">Szukaj</span>
-          <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.25" />
-            <path d="m20 20-4-4" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" />
-          </svg>
-        </button>
-      </form>
-
-      @if (error()) {
-        <p class="status error" role="alert">{{ error() }}</p>
-      } @else if (hint()) {
-        <p class="status hint" role="status">{{ hint() }}</p>
-      } @else if (status() === 'reconnecting') {
-        <p class="status" role="status">Łączenie z serwerem…</p>
-      }
+      <ng-container [ngTemplateOutlet]="searchBar" [ngTemplateOutletContext]="{ composer: false }" />
     </div>
   }
 </section>
+
+<!-- Pasek wyszukiwania: ekran startowy (composer=false) i pole na kolejne pytanie (composer=true) -->
+<ng-template #searchBar let-composer="composer">
+  <form
+    class="prawdowid-search-bar"
+    role="search"
+    [class.hero-bar]="!composer"
+    [class.dropping]="dragging()"
+    (submit)="search($event)"
+  >
+    <svg class="lupa" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" />
+      <path d="m20 20-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+    </svg>
+
+    @if (image(); as img) {
+      <span class="thumb">
+        <img [src]="img.url" alt="Dołączone zdjęcie" />
+        <button type="button" class="thumb-x" aria-label="Usuń zdjęcie" (click)="removeImage()">
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path
+              d="M3 3l6 6M9 3l-6 6"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </span>
+    }
+
+    <label class="visually-hidden" for="q">{{ composer ? 'Kolejne pytanie' : 'Szukaj' }}</label>
+    <input
+      id="q"
+      type="search"
+      name="q"
+      autocomplete="off"
+      enterkeyhint="search"
+      [placeholder]="dragging() ? 'Upuść zdjęcie…' : composer ? 'Zadaj kolejne pytanie…' : typed()"
+      [value]="query()"
+      (input)="onInput($event)"
+    />
+    <button
+      type="button"
+      class="photo-btn"
+      aria-label="Dodaj zdjęcie"
+      [attr.aria-disabled]="image() ? 'true' : null"
+      [title]="image() ? ONE_IMAGE_HINT : 'Dodaj zdjęcie (możesz też wkleić lub przeciągnąć)'"
+      (click)="image() ? showOneImageHint() : fileInput.click()"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect
+          x="3"
+          y="5"
+          width="18"
+          height="14"
+          rx="3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+        />
+        <circle cx="9" cy="10" r="1.6" fill="currentColor" />
+        <path
+          d="m4 17 5-5 4 4 2.5-2.5L20 18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+    <input #fileInput type="file" accept="image/*" hidden (change)="onFileChange($event)" />
+    <button class="prawdowid-search-button" type="submit" aria-label="Szukaj">
+      <span class="btn-label">Szukaj</span>
+      <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.25" />
+        <path d="m20 20-4-4" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" />
+      </svg>
+    </button>
+  </form>
+
+  @if (error()) {
+    <p class="status error" role="alert">{{ error() }}</p>
+  } @else if (hint()) {
+    <p class="status hint" role="status">{{ hint() }}</p>
+  } @else if (!composer && status() === 'reconnecting') {
+    <p class="status" role="status">Łączenie z serwerem…</p>
+  }
+</ng-template>
 
 @if (cropSrc(); as src) {
   @defer (on immediate) {
