@@ -1,0 +1,75 @@
+#!/bin/bash
+# Bootstrap hosta "${role}" (Amazon Linux 2023): Docker + compose, swap, konfiguracja wdrożenia.
+# Aplikację uruchamia /opt/wrobel/wrobel-deploy.sh (z S3), wywoływany przez make aws-deploy.
+set -euxo pipefail
+exec > >(tee -a /var/log/wrobel-bootstrap.log) 2>&1
+
+hostnamectl set-hostname "wrobel-${role}"
+
+dnf install -y docker
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+  https://github.com/docker/compose/releases/download/v2.33.1/docker-compose-linux-x86_64
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+cat > /etc/docker/daemon.json <<'EOF'
+{ "log-driver": "json-file", "log-opts": { "max-size": "20m", "max-file": "3" } }
+EOF
+systemctl enable --now docker
+
+if [ ! -f /swapfile ]; then
+  fallocate -l ${swap_gb}G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+mkdir -p /opt/wrobel/bundle
+cat > /etc/wrobel.conf <<'EOF'
+ROLE=${role}
+BUCKET=${bucket}
+REGION=${region}
+EOF
+
+%{ if tailscale ~}
+# Serwer GPU jest w tailnecie (100.x): host app dołącza jako wrobel-aws-app.
+# --accept-dns=false: nie ruszamy resolv.conf (Docker i AWS DNS zostają jak są).
+curl -fsSL -o /etc/yum.repos.d/tailscale.repo https://pkgs.tailscale.com/stable/amazon-linux/2023/tailscale.repo
+dnf install -y tailscale
+systemctl enable --now tailscaled
+aws s3 cp s3://${bucket}/infra/tailscale_auth_key /root/ts.key --region ${region} --only-show-errors
+tailscale up --auth-key="$(cat /root/ts.key)" --hostname=wrobel-aws-app --accept-dns=false \
+  || echo "tailscale up nieudane (klucz wygasł / zużyty?): tunel do GPU nie wstanie"
+shred -u /root/ts.key
+%{ endif ~}
+
+%{ if gpu_tunnel ~}
+# Tunel SSH do serwera GPU: Ollama (Bielik, bge-m3) i rerank-server na docker0 (host.docker.internal).
+cat > /etc/systemd/system/wrobel-gpu-tunnel.service <<'EOF'
+[Unit]
+Description=Tunel SSH do serwera GPU (Bielik, bge-m3, reranker)
+After=docker.service network-online.target tailscaled.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStartPre=/usr/bin/aws s3 cp s3://${bucket}/infra/gpu_ssh_key /opt/wrobel/gpu_key --region ${region} --only-show-errors
+ExecStartPre=/bin/chmod 600 /opt/wrobel/gpu_key
+ExecStart=/usr/bin/ssh -N -i /opt/wrobel/gpu_key -p ${gpu_ssh_port} \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/opt/wrobel/gpu_known_hosts \
+  -o BatchMode=yes ${gpu_forwards} ${gpu_ssh_target}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now wrobel-gpu-tunnel.service
+%{ endif ~}
+
+# Wymieniona instancja (np. -replace): jeśli paczka już jest w S3, od razu podnieś aplikację.
+if aws s3 cp "s3://${bucket}/bundle/host/wrobel-deploy.sh" /opt/wrobel/wrobel-deploy.sh --region ${region} --only-show-errors; then
+  WROBEL_FROM_BOOT=1 bash /opt/wrobel/wrobel-deploy.sh || echo "deploy przy starcie nieudany, uruchom make aws-deploy"
+fi

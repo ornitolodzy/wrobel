@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Architektura Prawdowid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: one technical sheet - header, the full-width architecture figure, then a two-column key (legend | verdicts), then implementation notes. Colour = component role, taken from the Excalidraw legend. */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #17202c;
+  --ink-2: #3b4757;
+  --muted: #5d6a7b;
+  --rule: #d9dee6;
+  --line: #334052;
+
+  --kanal: #d6ecff;   --kanal-s: #1c6fc4;
+  --brzeg: #e9e1ff;   --brzeg-s: #6a45d9;
+  --etap: #dcf6e1;    --etap-s: #2f9447;
+  --regula: #bfeec8;  --regula-s: #23753a;
+  --llm: #d2f4f7;     --llm-s: #0f7f91;
+  --dane: #fff4c7;    --dane-s: #c97a00;
+  --sec: #ffe5e5;     --sec-s: #c92a2a;
+  --prem: #f1f3f6;    --prem-s: #7d8795;
+
+  --f-display: "IBM Plex Sans Condensed", "IBM Plex Sans", "Arial Narrow", sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e131a; --surface: #151c26; --ink: #e7ecf3; --ink-2: #c3ccd8; --muted: #94a1b3; --rule: #2a3442; --line: #b7c2d1;
+    --kanal: #13304b; --kanal-s: #5aaef5;
+    --brzeg: #2a2252; --brzeg-s: #a08bfa;
+    --etap: #153620;  --etap-s: #5bc771;
+    --regula: #1c4a2b; --regula-s: #7ddc8e;
+    --llm: #0f3a41;   --llm-s: #45c7d8;
+    --dane: #3a2f10;  --dane-s: #f2c037;
+    --sec: #47191d;   --sec-s: #ff7a7a;
+    --prem: #1e252f;  --prem-s: #8e98a6;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e131a; --surface: #151c26; --ink: #e7ecf3; --ink-2: #c3ccd8; --muted: #94a1b3; --rule: #2a3442; --line: #b7c2d1;
+  --kanal: #13304b; --kanal-s: #5aaef5;
+  --brzeg: #2a2252; --brzeg-s: #a08bfa;
+  --etap: #153620;  --etap-s: #5bc771;
+  --regula: #1c4a2b; --regula-s: #7ddc8e;
+  --llm: #0f3a41;   --llm-s: #45c7d8;
+  --dane: #3a2f10;  --dane-s: #f2c037;
+  --sec: #47191d;   --sec-s: #ff7a7a;
+  --prem: #1e252f;  --prem-s: #8e98a6;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.sheet { max-width: 1240px; margin: 0 auto; padding-block: 40px 56px; display: grid; gap: 28px; }
+
+header { display: grid; gap: 8px; }
+.eyebrow { font: 500 12px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 600 clamp(28px, 4vw, 40px)/1.1 var(--f-display); margin: 0; letter-spacing: -.01em; text-wrap: balance; }
+.lede { margin: 0; max-width: 68ch; color: var(--ink-2); }
+.lede b { font-weight: 600; color: var(--ink); }
+
+figure { margin: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+.diagram { overflow-x: auto; padding: 20px 16px 8px; }
+.diagram svg { display: block; width: 100%; min-width: 980px; height: auto; color: var(--line); }
+figcaption { border-top: 1px solid var(--rule); padding: 14px 20px 16px; color: var(--muted); font-size: 13.5px; max-width: 110ch; }
+
+/* SVG roles */
+.n rect, .n ellipse, .n path.body { stroke-width: 1.4; }
+.r-kanal  > :is(rect, ellipse) { fill: var(--kanal); stroke: var(--kanal-s); }
+.r-brzeg  > rect { fill: var(--brzeg); stroke: var(--brzeg-s); }
+.r-etap   > rect { fill: var(--etap); stroke: var(--etap-s); }
+.r-regula > rect { fill: var(--regula); stroke: var(--regula-s); stroke-width: 2.4; }
+.r-llm    > rect { fill: var(--llm); stroke: var(--llm-s); }
+.r-dane   > :is(rect, path, ellipse) { fill: var(--dane); stroke: var(--dane-s); }
+.r-sec    > rect { fill: var(--sec); stroke: var(--sec-s); }
+.r-prem   > rect { fill: var(--prem); stroke: var(--prem-s); stroke-dasharray: 6 4; }
+.frame { fill: none; stroke: var(--etap-s); stroke-width: 1.2; stroke-dasharray: 7 5; }
+
+.t  { font: 600 12.5px var(--f-body); fill: var(--ink); }
+.d  { font: 400 11px var(--f-body); fill: var(--ink-2); }
+.d.warn { font-weight: 600; fill: var(--sec-s); }
+.ft { font: 500 11px var(--f-mono); letter-spacing: .08em; fill: var(--etap-s); }
+.fs { font: 400 11px var(--f-body); fill: var(--muted); }
+.gl { font: 500 10.5px var(--f-mono); letter-spacing: .08em; fill: var(--muted); }
+.el { font: 500 10.5px var(--f-mono); fill: var(--ink-2); }
+
+.e  { fill: none; stroke: currentColor; stroke-width: 1.4; }
+.e.dash { stroke-dasharray: 5 4; }
+.halo { fill: none; stroke: var(--surface); stroke-width: 7; }
+.dot { fill: currentColor; }
+
+/* Key */
+.key { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 28px; }
+.key section { display: grid; gap: 12px; align-content: start; }
+h2 { font: 600 13px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 20px; }
+.legend li { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.sw { flex: none; width: 26px; height: 16px; border-radius: 3px; border: 1.4px solid; }
+.sw.kanal { background: var(--kanal); border-color: var(--kanal-s); }
+.sw.brzeg { background: var(--brzeg); border-color: var(--brzeg-s); }
+.sw.etap { background: var(--etap); border-color: var(--etap-s); }
+.sw.regula { background: var(--regula); border-color: var(--regula-s); border-width: 2.4px; }
+.sw.llm { background: var(--llm); border-color: var(--llm-s); }
+.sw.dane { background: var(--dane); border-color: var(--dane-s); }
+.sw.sec { background: var(--sec); border-color: var(--sec-s); }
+.sw.prem { background: var(--prem); border-color: var(--prem-s); border-style: dashed; }
+.ln { flex: none; width: 26px; height: 0; border-top: 1.6px solid var(--line); }
+.ln.dash { border-top-style: dashed; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.chips li { font-size: 13.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--regula-s); background: var(--regula); color: var(--ink); }
+.chips.tech li { font: 500 12.5px var(--f-mono); border-color: var(--prem-s); background: var(--prem); }
+.key p { margin: 0; color: var(--ink-2); font-size: 14px; max-width: 62ch; }
+
+.notes { border-top: 1px solid var(--rule); padding-top: 22px; display: grid; gap: 12px; }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 90ch; color: var(--ink-2); }
+.notes b { color: var(--ink); font-weight: 600; }
+code { font: 13px var(--f-mono); }
+footer { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<main class="sheet">
+  <header>
+    <span class="eyebrow">HackNation 2026 · ścieżka MSZ · projekt MVP</span>
+    <h1>Architektura Prawdowid</h1>
+    <p class="lede">RAG do weryfikacji twierdzeń. <b>Jeden Postgres</b>, kanały oddzielone od logiki weryfikacji, <b>werdykt z jawnych reguł</b>, a nie z modelu językowego.</p>
+  </header>
+
+  <figure>
+    <div class="diagram">
+      <svg viewBox="0 0 1290 696" role="img" aria-label="Żądanie obywatela przechodzi przez kanał do API, które przekazuje tekst, stronę z linku albo tekst z obrazu do pipeline'u weryfikacji. Pipeline wykonuje siedem etapów od ekstrakcji twierdzeń po walidację cytatów, szuka dowodów w Postgresie, wywołuje LLM w etapach 1, 4 i 6 i zwraca do API werdykt z cytatami.">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- ===== edges (drawn first, boxes sit on top) ===== -->
+        <!-- obywatel -> kanały -->
+        <path class="e" d="M92,230 H104"/>
+        <path class="e" d="M104,194 V266"/>
+        <path class="e" d="M104,194 H116" marker-end="url(#arr)"/>
+        <path class="e" d="M104,266 H116" marker-end="url(#arr)"/>
+        <!-- kanały -> API -->
+        <path class="e" d="M236,194 H262" marker-end="url(#arr)"/>
+        <path class="e" d="M236,266 H262" marker-end="url(#arr)"/>
+        <!-- API -> etap 1 -->
+        <path class="e" d="M432,150 H696" marker-end="url(#arr)"/>
+        <text class="el" x="554" y="142" text-anchor="middle">tekst / twierdzenie</text>
+        <!-- API -> fetcher -->
+        <path class="e" d="M432,254 H486" marker-end="url(#arr)"/>
+        <text class="el" x="459" y="247" text-anchor="middle">URL</text>
+        <!-- fetcher -> etap 1 -->
+        <path class="e" d="M563,204 V166 H696" marker-end="url(#arr)"/>
+        <text class="el" x="610" y="185" text-anchor="middle">tekst strony</text>
+        <!-- API -> OCR (premium) -->
+        <path class="e dash" d="M410,324 V364 H486" marker-end="url(#arr)"/>
+        <text class="el" x="448" y="357" text-anchor="middle">obraz</text>
+        <!-- OCR -> etap 1 (premium) -->
+        <path class="e dash" d="M640,364 H666 V182 H696" marker-end="url(#arr)"/>
+        <!-- eval -> API -->
+        <path class="e dash" d="M124,430 V384 H290 V324" marker-end="url(#arr)"/>
+        <text class="el" x="207" y="377" text-anchor="middle">jak użytkownik</text>
+        <!-- etap 7 -> API -->
+        <path class="e" d="M696,632 H340 V324" marker-end="url(#arr)"/>
+        <text class="el" x="518" y="625" text-anchor="middle">werdykt + cytaty + ograniczenia</text>
+        <!-- etap 5 -> moderator (premium) -->
+        <path class="e dash" d="M696,476 H640" marker-end="url(#arr)"/>
+        <text class="el" x="668" y="457" text-anchor="middle">brak</text>
+        <text class="el" x="668" y="469" text-anchor="middle">dowodów</text>
+        <!-- etapy 1 -> 7 -->
+        <path class="e" d="M816,194 V212" marker-end="url(#arr)"/>
+        <path class="e" d="M816,272 V290" marker-end="url(#arr)"/>
+        <path class="e" d="M816,350 V368" marker-end="url(#arr)"/>
+        <path class="e" d="M816,428 V446" marker-end="url(#arr)"/>
+        <path class="e" d="M816,506 V524" marker-end="url(#arr)"/>
+        <path class="e" d="M816,584 V602" marker-end="url(#arr)"/>
+        <!-- etapy 1, 4, 6 -> LLM (bus from 1 joins 4) -->
+        <path class="e dash" d="M936,164 H946 V398"/>
+        <path class="e dash" d="M936,398 H994" marker-end="url(#arr)"/>
+        <circle class="dot" cx="946" cy="398" r="2.8"/>
+        <path class="e dash" d="M936,554 H994" marker-end="url(#arr)"/>
+        <!-- etap 3 -> Postgres (crosses the LLM bus: halo marks it as passing over) -->
+        <path class="halo" d="M940,320 H990"/>
+        <path class="e" d="M936,320 H994" marker-end="url(#arr)"/>
+        <text class="el" x="975" y="300" text-anchor="middle">hybrid</text>
+        <text class="el" x="975" y="311" text-anchor="middle">search</text>
+        <!-- katalog -> ingestion -> Postgres -->
+        <path class="e" d="M1136,112 V136" marker-end="url(#arr)"/>
+        <path class="e" d="M1136,232 V256" marker-end="url(#arr)"/>
+
+        <!-- ===== nodes ===== -->
+        <!-- kanały -->
+        <g class="n r-kanal">
+          <ellipse cx="52" cy="230" rx="40" ry="22"/>
+          <text class="t" x="52" y="234" text-anchor="middle">Obywatel</text>
+        </g>
+        <text class="gl" x="116" y="160">KANAŁY</text>
+        <g class="n r-kanal">
+          <rect x="116" y="170" width="120" height="48" rx="6"/>
+          <text class="t" x="176" y="190" text-anchor="middle">Web UI</text>
+          <text class="d" x="176" y="207" text-anchor="middle">responsywny</text>
+        </g>
+        <g class="n r-kanal">
+          <rect x="116" y="242" width="120" height="48" rx="6"/>
+          <text class="t" x="176" y="262" text-anchor="middle">Discord bot</text>
+          <text class="d" x="176" y="279" text-anchor="middle">kanał 2</text>
+        </g>
+
+        <!-- API -->
+        <g class="n r-brzeg">
+          <rect x="262" y="134" width="170" height="190" rx="6"/>
+          <text class="t" x="347" y="160" text-anchor="middle">API · FastAPI</text>
+          <text class="d" x="347" y="184" text-anchor="middle">walidacja wejścia</text>
+          <text class="d" x="347" y="200" text-anchor="middle">rate limit</text>
+          <text class="d" x="347" y="216" text-anchor="middle">maskowanie PII</text>
+          <text class="d" x="347" y="232" text-anchor="middle">audit log</text>
+          <line x1="282" y1="250" x2="412" y2="250" stroke="var(--brzeg-s)" stroke-width="1" opacity=".45"/>
+          <text class="d" x="347" y="272" text-anchor="middle">statusy techniczne</text>
+          <text class="d" x="347" y="288" text-anchor="middle">≠ werdykt</text>
+        </g>
+
+        <!-- warstwa bezpieczeństwa: obejmuje pozyskanie treści i pipeline -->
+        <g class="n r-sec">
+          <rect x="486" y="6" width="470" height="62" rx="6"/>
+          <text class="t" x="721" y="27" text-anchor="middle">Warstwa bezpieczeństwa · obejmuje pozyskanie treści i pipeline</text>
+          <text class="d" x="721" y="44" text-anchor="middle">instrukcje oddzielone od treści źródeł · LLM bez narzędzi</text>
+          <text class="d" x="721" y="59" text-anchor="middle">wymuszony JSON · Prompt Guard + log zdarzeń injection</text>
+        </g>
+
+        <!-- pozyskanie treści -->
+        <g class="n r-sec">
+          <rect x="486" y="204" width="154" height="100" rx="6"/>
+          <text class="t" x="563" y="225" text-anchor="middle">URL fetcher · na żywo</text>
+          <text class="d" x="563" y="243" text-anchor="middle">httpx + trafilatura</text>
+          <text class="d" x="563" y="258" text-anchor="middle">timeout</text>
+          <text class="d" x="563" y="273" text-anchor="middle">bez obchodzenia paywalli</text>
+          <text class="d warn" x="563" y="291" text-anchor="middle">treść = dane niezaufane</text>
+        </g>
+        <g class="n r-prem">
+          <rect x="486" y="334" width="154" height="60" rx="6"/>
+          <text class="t" x="563" y="358" text-anchor="middle">OCR</text>
+          <text class="d" x="563" y="376" text-anchor="middle">PaddleOCR / Tesseract</text>
+        </g>
+        <g class="n r-prem">
+          <rect x="486" y="430" width="154" height="104" rx="6"/>
+          <text class="t" x="563" y="452" text-anchor="middle">Kolejka moderatora</text>
+          <text class="d" x="563" y="471" text-anchor="middle">sprawa = rekomendacja</text>
+          <text class="d" x="563" y="486" text-anchor="middle">≠ przekazanie</text>
+          <text class="d" x="563" y="502" text-anchor="middle">grupowanie zgłoszeń</text>
+          <text class="d" x="563" y="521" text-anchor="middle">zapis: cases w Postgresie</text>
+        </g>
+        <g class="n r-prem">
+          <rect x="12" y="430" width="224" height="104" rx="6"/>
+          <text class="t" x="124" y="452" text-anchor="middle">Eval harness</text>
+          <text class="d" x="124" y="471" text-anchor="middle">scenariusze A–J, ≥30 przypadków</text>
+          <text class="d" x="124" y="487" text-anchor="middle">macro-F1 · cytaty · wstrzymania</text>
+          <text class="d" x="124" y="503" text-anchor="middle">injection · czas · koszt</text>
+        </g>
+
+        <!-- pipeline -->
+        <rect class="frame" x="676" y="76" width="280" height="606" rx="10"/>
+        <text class="ft" x="696" y="99">VERIFICATION PIPELINE</text>
+        <text class="fs" x="696" y="116">jeden moduł · jawne etapy · model wymienny</text>
+
+        <g class="n r-etap">
+          <rect x="696" y="134" width="240" height="60" rx="6"/>
+          <text class="t" x="816" y="158" text-anchor="middle">1 · Ekstrakcja twierdzeń</text>
+          <text class="d" x="816" y="176" text-anchor="middle">LLM → JSON</text>
+        </g>
+        <g class="n r-etap">
+          <rect x="696" y="212" width="240" height="60" rx="6"/>
+          <text class="t" x="816" y="236" text-anchor="middle">2 · Budowa zapytań</text>
+          <text class="d" x="816" y="254" text-anchor="middle">PL + wielojęzyczne</text>
+        </g>
+        <g class="n r-etap">
+          <rect x="696" y="290" width="240" height="60" rx="6"/>
+          <text class="t" x="816" y="314" text-anchor="middle">3 · Hybrid retrieval</text>
+          <text class="d" x="816" y="332" text-anchor="middle">BM25 + wektor → RRF → reranker</text>
+        </g>
+        <g class="n r-etap">
+          <rect x="696" y="368" width="240" height="60" rx="6"/>
+          <text class="t" x="816" y="392" text-anchor="middle">4 · Stance per fragment</text>
+          <text class="d" x="816" y="410" text-anchor="middle">popiera / przeczy / nie dotyczy</text>
+        </g>
+        <g class="n r-regula">
+          <rect x="696" y="446" width="240" height="60" rx="6"/>
+          <text class="t" x="816" y="465" text-anchor="middle">5 · Polityka werdyktu · reguły</text>
+          <text class="d" x="816" y="481" text-anchor="middle">nie LLM: jakość, aktualność,</text>
+          <text class="d" x="816" y="496" text-anchor="middle">niezależne potwierdzenia</text>
+        </g>
+        <g class="n r-etap">
+          <rect x="696" y="524" width="240" height="60" rx="6"/>
+          <text class="t" x="816" y="548" text-anchor="middle">6 · Odpowiedź</text>
+          <text class="d" x="816" y="566" text-anchor="middle">prosty polski · źródło ≠ interpretacja</text>
+        </g>
+        <g class="n r-regula">
+          <rect x="696" y="602" width="240" height="60" rx="6"/>
+          <text class="t" x="816" y="626" text-anchor="middle">7 · Walidator cytatów</text>
+          <text class="d" x="816" y="644" text-anchor="middle">fragment ∈ źródło?</text>
+        </g>
+
+        <!-- dane / korpus -->
+        <g class="n r-dane">
+          <rect x="994" y="16" width="284" height="96" rx="6"/>
+          <text class="t" x="1136" y="37" text-anchor="middle">Katalog źródeł · audytowalny</text>
+          <text class="d" x="1136" y="55" text-anchor="middle">≥100 dokumentów · ≥10 domen · ≥2 typy</text>
+          <text class="d" x="1136" y="71" text-anchor="middle">dane.gov.pl · ISAP · EUR-Lex · BIP</text>
+          <text class="d" x="1136" y="87" text-anchor="middle">fact-checkery IFCN/EFCSN · EUvsDisinfo</text>
+        </g>
+        <g class="n r-dane">
+          <rect x="994" y="136" width="284" height="96" rx="6"/>
+          <text class="t" x="1136" y="157" text-anchor="middle">Ingestion worker · cron / ręcznie</text>
+          <text class="d" x="1136" y="175" text-anchor="middle">fetch → chunk → embed (bge-m3)</text>
+          <text class="d" x="1136" y="191" text-anchor="middle">data publikacji + data pobrania</text>
+          <text class="d" x="1136" y="207" text-anchor="middle">dedup przedruków (MinHash)</text>
+        </g>
+        <g class="n r-dane">
+          <path class="body" d="M994,266 V362 A142,10 0 0 0 1278,362 V266"/>
+          <ellipse cx="1136" cy="266" rx="142" ry="10"/>
+          <text class="t" x="1136" y="298" text-anchor="middle">Postgres 16 · pgvector · tsvector</text>
+          <text class="d" x="1136" y="316" text-anchor="middle">sources · documents · chunks</text>
+          <text class="d" x="1136" y="332" text-anchor="middle">checks (audit log, TTL) · cases</text>
+        </g>
+
+        <!-- LLM -->
+        <g class="n r-llm">
+          <rect x="994" y="388" width="284" height="182" rx="6"/>
+          <text class="t" x="1136" y="462" text-anchor="middle">LLM przez LiteLLM</text>
+          <text class="d" x="1136" y="481" text-anchor="middle">Claude · Mistral (EOG) · Bielik lokalnie</text>
+          <text class="d" x="1136" y="498" text-anchor="middle">dostawca wymienny w konfiguracji</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>Żądanie wchodzi od lewej: kanał przekazuje je do API, a API wysyła do etapu 1 tekst wpisany przez użytkownika, stronę pobraną z linku albo tekst odczytany z obrazu. Etapy 1–7 biegną w dół; LLM pomaga tylko w etapach 1, 4 i 6, a werdykt (etap 5) i sprawdzenie cytatów (etap 7) to deterministyczny kod. Wynik wraca dolną ścieżką do API. Gdy dowodów brak, sprawa może trafić do kolejki moderatora.</figcaption>
+  </figure>
+
+  <div class="key">
+    <section>
+      <h2>Legenda</h2>
+      <ul class="legend">
+        <li><span class="sw kanal"></span>kanały</li>
+        <li><span class="sw brzeg"></span>API, brzeg systemu</li>
+        <li><span class="sw etap"></span>etap pipeline'u, LLM pomocniczo</li>
+        <li><span class="sw regula"></span>deterministyczne reguły</li>
+        <li><span class="sw llm"></span>dostawca LLM, wymienny</li>
+        <li><span class="sw dane"></span>dane i korpus</li>
+        <li><span class="sw sec"></span>bezpieczeństwo, treść niezaufana</li>
+        <li><span class="sw prem"></span>premium i narzędzia</li>
+        <li><span class="ln"></span>przepływ danych</li>
+        <li><span class="ln dash"></span>wywołanie LLM lub ścieżka premium</li>
+      </ul>
+    </section>
+    <section>
+      <h2>Wynik sprawdzenia</h2>
+      <p>Werdykt wybiera polityka reguł z etapu 5:</p>
+      <ul class="chips">
+        <li>potwierdzone</li>
+        <li>fałszywe</li>
+        <li>wprowadzające w błąd</li>
+        <li>brak wystarczających dowodów</li>
+        <li>nie podlega weryfikacji</li>
+      </ul>
+      <p>Statusy techniczne są osobne i nigdy nie udają werdyktu:</p>
+      <ul class="chips tech">
+        <li>error</li>
+        <li>api_limit</li>
+        <li>needs_clarification</li>
+      </ul>
+    </section>
+  </div>
+
+  <section class="notes">
+    <h2>Stan wdrożenia na 22.11.2026</h2>
+    <ul>
+      <li><b>Wyszukiwanie (etap 3) korzysta z Neo4j.</b> Indeks buduje ContextGraph i co 10 minut uzgadnia go z dokumentami PageScrappera.</li>
+      <li><b>Postgres pozostaje źródłem prawdy:</b> oryginalne dokumenty, historia sprawdzeń i audyt.</li>
+      <li><b>Doszły:</b> twierdzenia sprawdzone przez fact-checkerów (ClaimReview) i wyszukiwanie na żywo, gdy w bazie brakuje dowodów.</li>
+      <li><b>Jeszcze nie wdrożone:</b> kolejka moderatora i zapis tekstu z OCR do bazy wiedzy.</li>
+    </ul>
+  </section>
+
+  <footer>Odwzorowane z rysunku <code>prawdowid-architektura.excalidraw</code>: wszystkie 21 bloków i 25 połączeń z podpisami.</footer>
+</main>
+</body>
+</html>

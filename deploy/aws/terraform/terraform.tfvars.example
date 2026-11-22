@@ -1,0 +1,21 @@
+# cp terraform.tfvars.example terraform.tfvars  (terraform.tfvars jest w .gitignore)
+
+region = "eu-north-1"
+
+# Serwer GPU z Bielikiem / bge-m3 / rerank-server (ten sam, do którego robisz tunel z laptopa).
+# Klucz musi być bez hasła (ssh-keygen -t ed25519 -f ~/.ssh/wrobel_gpu -N "" i dopisz .pub
+# do ~/.ssh/authorized_keys na serwerze). Puste gpu_ssh_target = bez tunelu.
+gpu_ssh_target           = "user@gpu.example.org"
+gpu_ssh_port             = 22
+gpu_ssh_private_key_path = "~/.ssh/wrobel_gpu"
+
+# Serwer GPU w tailnecie (adres 100.x)? Host app dołączy do Tailscale.
+# https://login.tailscale.com/admin/settings/keys -> Generate auth key (Reusable: tak, Ephemeral: nie)
+# tailscale_auth_key = "tskey-auth-..."
+
+# Domyślne -L pasują do .env (PRAWDOWID_*_API_BASE=http://host.docker.internal:11435, reranker :8081).
+# gpu_tunnel_forwards = ["172.17.0.1:11435:127.0.0.1:11434", "172.17.0.1:8081:127.0.0.1:8081"]
+
+# edge_instance_type = "t3.small"
+# app_instance_type  = "t3.large"
+# data_instance_type = "t3.medium"

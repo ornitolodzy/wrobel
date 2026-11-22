@@ -24,3 +24,8 @@ hacknation-llm-wiki
 
 # surowe wyniki ewaluacji (finalny raport jest w docs/wyniki/)
 eval/results/
+
+# Terraform (deploy/aws): stan zawiera wygenerowane hasła
+deploy/aws/terraform/.terraform/
+deploy/aws/terraform/terraform.tfstate*
+deploy/aws/terraform/terraform.tfvars

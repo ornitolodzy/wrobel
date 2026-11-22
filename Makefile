@@ -5,7 +5,8 @@ DC      := $(COMPOSE)
 S       ?=
 
 .PHONY: help up start down clean ps logs build config dev-backend dev-frontend seed-dump seed-dump-all graph-up graph-seed-dump graph-sync \
-        test test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord test-frontend eval-e2e
+        test test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord test-frontend eval-e2e \
+        aws-init aws-up aws-deploy aws-config aws-ps aws-logs aws-stop aws-start aws-down
 
 help: ## lista celów
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -90,3 +91,35 @@ test-discord:
 
 test-frontend:
 	cd Frontend && npm test -- --watch=false
+
+# --- AWS (deploy/aws): 3x EC2 (edge / app / data), publiczne API na Elastic IP ---
+TF  := terraform -chdir=deploy/aws/terraform
+H   ?= app
+AWS_IDS = $$($(TF) output -raw edge_instance_id) $$($(TF) output -raw app_instance_id) $$($(TF) output -raw data_instance_id)
+
+aws-init: ## AWS: terraform init (raz)
+	$(TF) init
+
+aws-up: ## AWS: infrastruktura (terraform apply)
+	$(TF) apply
+
+aws-deploy: ## AWS: build + push obrazów, paczka do S3, restart hostów (HOSTS="edge")
+	./deploy/aws/deploy.sh
+
+aws-config: ## AWS: tylko .env / nginx.conf / compose, bez przebudowy obrazów
+	SKIP_BUILD=1 ./deploy/aws/deploy.sh
+
+aws-ps: ## AWS: stan kontenerów na hoście (make aws-ps H=edge)
+	./deploy/aws/remote.sh $(H) 'docker compose -f $(H).yml ps'
+
+aws-logs: ## AWS: logi serwisu (make aws-logs H=app S=verification-pipeline)
+	./deploy/aws/remote.sh $(H) 'docker compose -f $(H).yml logs --tail 150 $(S)'
+
+aws-stop: ## AWS: zatrzymanie maszyn (płacisz tylko za dyski i IP)
+	aws ec2 stop-instances --region $$($(TF) output -raw region) --instance-ids $(AWS_IDS) --output text
+
+aws-start: ## AWS: start maszyn (kontenery wstają same)
+	aws ec2 start-instances --region $$($(TF) output -raw region) --instance-ids $(AWS_IDS) --output text
+
+aws-down: ## AWS: usunięcie wszystkiego (terraform destroy, baza też znika)
+	$(TF) destroy
