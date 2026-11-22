@@ -4,7 +4,7 @@ COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compos
 DC      := $(COMPOSE)
 S       ?=
 
-.PHONY: help up start down clean ps logs build config dev-backend dev-frontend graph-up graph-sync \
+.PHONY: help up start down clean ps logs build config dev-backend dev-frontend seed-dump graph-up graph-sync \
         test test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord test-frontend
 
 help: ## lista celów
@@ -39,6 +39,13 @@ dev-backend: ## backend w Dockerze bez frontendu (do pracy z `make dev-frontend`
 
 dev-frontend: ## Angular dev server :4200, /api i /ws -> gateway :8000
 	cd Frontend && npm ci && npm start
+
+seed-dump: ## zrzut korpusu z działającego Postgresa do db/seed (bez checks/audit_events/check/case)
+	$(DC) exec -T postgres pg_dump -U prawdowid -d prawdowid --no-owner --no-privileges \
+	  --exclude-table-data=checks --exclude-table-data=audit_events \
+	  --exclude-table-data='"check"' --exclude-table-data='"case"' \
+	  | gzip -9 > db/seed/10-prawdowid.sql.gz
+	@ls -lh db/seed/10-prawdowid.sql.gz
 
 graph-up: ## ContextGraph + Neo4j (profil graph), API :8100, Browser :7474
 	$(DC) --profile graph up -d --build neo4j context-graph

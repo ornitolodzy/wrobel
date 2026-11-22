@@ -12,6 +12,9 @@ services:
       POSTGRES_DB: prawdowid
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Seed (korpus + embeddingi bge-m3) ładowany tylko przy pierwszym starcie z pustym wolumenem.
+      # Regeneracja z działającej bazy: make seed-dump
+      - ./db/seed:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U prawdowid -d prawdowid"]
       interval: 5s

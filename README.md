@@ -226,7 +226,12 @@ Invoke-RestMethod -Method Patch -Uri http://localhost:8000/api/v1/config -Header
 
 ### 7. Zapełnij bazę wiedzy (korpus)
 
-Po starcie korpus jest pusty. Scrapper pobiera źródła automatycznie co 6 godzin (`SCRAPE_INTERVAL_MINUTES=360`).
+Przy pierwszym starcie (pusty wolumen `postgres-data`) Postgres wczytuje seed z `db/seed/10-prawdowid.sql.gz`:
+253 dokumenty, 1383 fragmenty z embeddingami `bge-m3`, 34 źródła. Wyniki weryfikacji i audyt nie są w seedzie.
+Seed nie nadpisuje istniejącej bazy. Żeby go wczytać ponownie, użyj `docker compose down -v`, a potem `up`.
+Aktualny stan bazy zapiszesz do seeda przez `make seed-dump`.
+
+Bez seeda korpus jest pusty. Scrapper pobiera źródła automatycznie co 6 godzin (`SCRAPE_INTERVAL_MINUTES=360`).
 Żeby pobrać je od razu, użyj klucza admina (domyślnie `change-me-admin`, ustawiony w `docker-compose.yml`):
 
 ```powershell
