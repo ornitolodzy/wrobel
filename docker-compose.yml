@@ -159,6 +159,12 @@ services:
       PRAWDOWID_LLM_TEMPERATURE: ${PRAWDOWID_LLM_TEMPERATURE:-}
       PRAWDOWID_RETRIEVAL_TOP_K: ${PRAWDOWID_RETRIEVAL_TOP_K:-}
       PRAWDOWID_MAX_CONTEXT_CHARS: ${PRAWDOWID_MAX_CONTEXT_CHARS:-}
+      # Zrodlo kontekstu: postgres (korpus z PageScrappera) | neo4j (graf ContextGraph, wymaga
+      # profilu "graph": make graph-up). Puste = conf/docker (postgres). Graf tylko do odczytu.
+      PRAWDOWID_RETRIEVAL_BACKEND: ${PRAWDOWID_RETRIEVAL_BACKEND:-}
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-contextgraph}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
