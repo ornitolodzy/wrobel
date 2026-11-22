@@ -24,7 +24,7 @@ from app.schemas import (
     PageInfo,
     Verdict,
 )
-from app.services import Downstream, DownstreamError, PageUnreadable
+from app.services import Downstream, DownstreamError, PageUnreadable, ProgressListener
 
 if TYPE_CHECKING:
     from app.cases import CaseDesk
@@ -49,6 +49,12 @@ class CheckRunner:
         self.runtime = runtime
         self.client = client
         self.cases = cases
+        # Set by the streaming routes: receives progress events while the check runs.
+        self.progress: ProgressListener | None = None
+
+    async def _progress(self, stage: str, **data: Any) -> None:
+        if self.progress is not None:
+            await self.progress({"stage": stage, **data})
 
     async def verify_claim(self, text: str) -> JSONResponse:
         masked, pii_types = mask_pii(text)
@@ -162,6 +168,7 @@ class CheckRunner:
 
         try:
             if page_url is not None:
+                await self._progress("page", url=page_url)
                 try:
                     page = await self.downstream.scrape(page_url)
                 except PageUnreadable as exc:
@@ -182,12 +189,14 @@ class CheckRunner:
                         }
 
             if image is not None:
+                await self._progress("ocr")
                 ocr: OcrResponse = await self.downstream.ocr(*image)
                 mock = ocr.mock
                 extra_limitations.extend(ocr.limitations)
                 ocr_masked, ocr_pii = mask_pii(ocr.text.strip())
                 pii_types = sorted(set(pii_types) | set(ocr_pii))
                 content = {"ocr_text": ocr_masked}
+                await self._progress("ocr_done", chars=len(ocr_masked))
                 if not ocr_masked and not ocr.mock:
                     result = LlmVerifyResponse(
                         status="needs_clarification",
@@ -205,7 +214,7 @@ class CheckRunner:
                     "options": resolved.model_dump(),
                     "model": model.model_dump(),
                 }
-                result, usage, llm_mock = await self.downstream.verify(payload)
+                result, usage, llm_mock = await self.downstream.verify(payload, progress=self.progress)
                 mock = mock or llm_mock
         except DownstreamError as exc:
             error = exc

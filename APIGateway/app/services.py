@@ -1,4 +1,6 @@
+import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -17,6 +19,9 @@ from app.schemas import (
 )
 
 logger = logging.getLogger("gateway.services")
+
+# Receives progress events of a running check ({"stage": "claims", ...}); used by the /stream routes.
+ProgressListener = Callable[[dict[str, Any]], Awaitable[None]]
 
 MOCK_NOTE = "Odpowiedź testowa (tryb MOCK) – serwis weryfikacji nie jest podłączony. To NIE jest wynik sprawdzenia."
 
@@ -78,11 +83,17 @@ class Downstream:
         except ValueError as exc:
             raise DownstreamError(service, "bad_response", f"Serwis '{service}' zwrócił niepoprawną odpowiedź.") from exc
 
-    async def verify(self, payload: dict[str, Any]) -> tuple[LlmVerifyResponse, dict[str, Any] | None, bool]:
+    async def verify(
+        self, payload: dict[str, Any], progress: ProgressListener | None = None
+    ) -> tuple[LlmVerifyResponse, dict[str, Any] | None, bool]:
         if self.is_mock("llm"):
             return self._mock_verify(payload), None, True
 
-        data = await self._post("llm", "/verify", json=payload)
+        data = None
+        if progress is not None:
+            data = await self._verify_stream(payload, progress)
+        if data is None:
+            data = await self._post("llm", "/verify", json=payload)
         usage = data.pop("usage", None) if isinstance(data, dict) else None
         security = data.pop("security", None) if isinstance(data, dict) else None
         if security:
@@ -93,6 +104,42 @@ class Downstream:
         except ValidationError as exc:
             logger.warning("Niepoprawny kontrakt odpowiedzi LLM: %s", exc)
             raise DownstreamError("llm", "bad_response", "Serwis weryfikacji zwrócił odpowiedź w niepoprawnym formacie.") from exc
+
+    async def _verify_stream(self, payload: dict[str, Any], progress: ProgressListener) -> Any:
+        """/verify/stream of the pipeline: forwards progress events, returns the final body.
+        None = the pipeline has no streaming endpoint (older version): the caller uses /verify."""
+        url = f"{self.services['llm']}/verify/stream"
+        try:
+            async with self.client.stream("POST", url, json=payload) as resp:
+                if resp.status_code in (404, 405):
+                    return None
+                if resp.status_code >= 400:
+                    raise DownstreamError("llm", "upstream_error", f"Serwis 'llm' zwrócił błąd {resp.status_code}.")
+                async for raw in resp.aiter_lines():
+                    if not raw.strip():
+                        continue
+                    try:
+                        event = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if event.get("type") == "progress":
+                        event.pop("type", None)
+                        await progress(event)
+                    elif event.get("type") == "result":
+                        code = int(event.get("status", 502))
+                        if code in (402, 429):
+                            raise DownstreamError(
+                                "llm", "api_limit", "Serwis 'llm' zgłosił limit lub brak dostępu do API.", CheckStatus.api_limit
+                            )
+                        if code >= 400:
+                            logger.warning("llm /verify/stream -> %s: %s", code, str(event.get("body"))[:500])
+                            raise DownstreamError("llm", "upstream_error", f"Serwis 'llm' zwrócił błąd {code}.")
+                        return event.get("body")
+        except httpx.TimeoutException as exc:
+            raise DownstreamError("llm", "timeout", "Serwis 'llm' nie odpowiedział w wyznaczonym czasie.") from exc
+        except httpx.RequestError as exc:
+            raise DownstreamError("llm", "service_unavailable", "Serwis 'llm' jest niedostępny.") from exc
+        raise DownstreamError("llm", "bad_response", "Serwis weryfikacji przerwał odpowiedź przed wynikiem.")
 
     async def ocr(self, filename: str, content: bytes, mime: str) -> OcrResponse:
         if self.is_mock("image_recognition"):

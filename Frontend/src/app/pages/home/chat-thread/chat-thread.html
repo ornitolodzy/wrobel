@@ -3,9 +3,14 @@
     <time class="stamp user" [attr.datetime]="m.sentAt.toISOString()">{{
       m.sentAt | date: STAMP
     }}</time>
-    <div class="msg user" [class.first]="i === 0">
+    <div class="msg user" [class.first]="i === 0" [class.has-photo]="!!m.imageUrl">
       @if (m.imageUrl; as url) {
-        <img class="thumb" [src]="url" alt="Dołączone zdjęcie" />
+        <img
+          class="photo"
+          [src]="url"
+          alt="Dołączone zdjęcie"
+          [style.view-transition-name]="m.id === photoFlight() ? 'wrobel-photo' : null"
+        />
       }
       @if (m.text) {
         <p>{{ m.text }}</p>
@@ -43,7 +48,10 @@
                 <app-verdict-tag [verdict]="r.verdict" />
               }
               @if (r.sources?.length || r.url === '#') {
-                <h3 class="claim">{{ r.title }}</h3>
+                <!-- Jedno twierdzenie: nie powtarzamy pytania użytkownika. Kilka: nagłówek mówi, którego dotyczy werdykt -->
+                @if (list.length > 1 || !r.verdict) {
+                  <h3 class="claim">{{ r.title }}</h3>
+                }
               } @else {
                 <a [href]="r.url" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
               }
@@ -91,8 +99,32 @@
         } @else {
           <div class="loading" role="status">
             <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-            <span>{{ status() === 'open' ? 'Szukam odpowiedzi…' : 'Łączenie z serwerem…' }}</span>
+            <span>{{
+              status() !== 'open'
+                ? 'Łączenie z serwerem…'
+                : (m.progress?.headline ?? 'Szukam odpowiedzi…')
+            }}</span>
           </div>
+          <!-- Kilka wątków w jednym pytaniu (np. zrzut wpisu): każdy z osobna, z postępem -->
+          @if (m.progress; as p) {
+            @if (p.threads.length > 1) {
+              <ol class="threads" aria-label="Wątki pytania">
+                @for (t of p.threads; track t.id) {
+                  <li class="thread" [class]="t.state">
+                    <span class="thread-mark" aria-hidden="true"></span>
+                    <span class="thread-text">{{ t.text }}</span>
+                    @if (t.verdict) {
+                      <app-verdict-tag [verdict]="t.verdict" />
+                    } @else if (t.state === 'checked') {
+                      <small class="meta">{{
+                        t.sources === 0 ? 'brak źródeł w bazie' : 'źródła przeczytane'
+                      }}</small>
+                    }
+                  </li>
+                }
+              </ol>
+            }
+          }
         }
 
         <!-- Brak potwierdzonych danych w bazie: wyszukiwanie na żywo w zaufanych witrynach -->
