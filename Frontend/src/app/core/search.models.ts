@@ -82,6 +82,25 @@ export interface BotMessage {
   answeredAt: Date | null;
   checkId?: string;
   live?: LiveSearchView;
+  /** Postęp sprawdzania, zanim przyjdzie wynik (strumień z API Gateway). */
+  progress?: ProgressView;
 }
 
 export type ChatMessage = UserMessage | BotMessage;
+
+/** Jeden wątek (twierdzenie) pytania w trakcie sprawdzania. */
+export interface ProgressThread {
+  id: string;
+  text: string;
+  /** pending = czeka, checked = źródła przeczytane, done = jest werdykt */
+  state: 'pending' | 'checked' | 'done';
+  verdict?: Verdict;
+  /** Ile źródeł z bazy wiedzy trafiło do oceny. */
+  sources?: number;
+}
+
+/** Co dzieje się teraz z pytaniem: nagłówek + wątki, gdy pytanie ma ich kilka. */
+export interface ProgressView {
+  headline: string;
+  threads: ProgressThread[];
+}

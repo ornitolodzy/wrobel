@@ -1,0 +1,81 @@
+/* Postęp sprawdzania pytania z kilkoma wątkami (strumień z API Gateway) */
+
+.threads {
+  align-self: stretch;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.thread {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: center;
+  animation: thread-in 260ms ease both;
+}
+
+.thread-text {
+  overflow-wrap: anywhere;
+}
+
+.thread app-verdict-tag,
+.thread .meta {
+  grid-column: 2;
+  justify-self: start;
+}
+
+/* znacznik stanu: pulsujące kółko -> pełne kółko -> ptaszek przy werdykcie */
+.thread-mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--prawdowid-accent-hover);
+  box-sizing: border-box;
+}
+
+.thread.pending .thread-mark {
+  animation: thread-pulse 1.1s ease-in-out infinite;
+}
+
+.thread.pending .thread-text {
+  color: var(--prawdowid-text-secondary);
+}
+
+.thread.checked .thread-mark {
+  background: color-mix(in srgb, var(--prawdowid-accent-hover) 45%, transparent);
+}
+
+.thread.done .thread-mark {
+  width: 12px;
+  height: 7px;
+  border-radius: 0;
+  border-width: 0 0 2px 2px;
+  border-color: var(--prawdowid-accent-main);
+  transform: translateY(-2px) rotate(-45deg);
+}
+
+@keyframes thread-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes thread-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread,
+  .thread.pending .thread-mark {
+    animation: none;
+  }
+}

@@ -191,6 +191,8 @@ input::-webkit-search-cancel-button {
   object-fit: cover;
   border-radius: 10px;
   display: block;
+  /* po wysłaniu przelatuje do dymka i rośnie (styles.css, wrobel-photo) */
+  view-transition-name: wrobel-photo;
 }
 
 .thumb-x {

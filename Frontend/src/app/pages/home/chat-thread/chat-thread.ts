@@ -14,11 +14,13 @@ import { VerdictTag } from '../../../shared/verdict-tag/verdict-tag';
   imports: [VerdictTag, DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-thread.html',
-  styleUrls: ['./chat-thread.css', './chat-live.css'],
+  styleUrls: ['./chat-thread.css', './chat-live.css', './chat-progress.css'],
 })
 export class ChatThread {
   readonly messages = input.required<ChatMessage[]>();
   readonly status = input.required<ConnectionStatus>();
+  /** Id wiadomości, do której właśnie przelatuje zdjęcie z paska (View Transition). */
+  readonly photoFlight = input<number | null>(null);
   /** Znacznik czasu nad dymkiem, np. 22.11.2026, 14:05 */
   protected readonly STAMP = 'dd.MM.yyyy, HH:mm';
 }

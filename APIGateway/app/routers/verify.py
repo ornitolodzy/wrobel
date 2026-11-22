@@ -1,5 +1,9 @@
+import asyncio
+import json
+from collections.abc import Awaitable, Callable
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import Settings
 from app.db import Database
@@ -83,3 +87,74 @@ async def verify_live(
         )
     except LiveSearchNotApplicable as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from None
+
+
+# ---------- Wersje strumieniowe (NDJSON): postęp sprawdzania, a na końcu ten sam wynik ----------
+
+_STREAM_DOC = (
+    "Strumień NDJSON: linie {\"type\": \"progress\", \"stage\": ...} w trakcie pracy (np. odczyt zdjęcia, "
+    "lista wątków, kolejne sprawdzone wątki), na końcu {\"type\": \"result\", \"status\": <HTTP>, \"body\": "
+    "<CheckResponse>} - to samo co zwykły endpoint."
+)
+
+
+def _stream(runner: CheckRunner, run: Callable[[], Awaitable[JSONResponse]]) -> StreamingResponse:
+    queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    async def on_progress(event: dict) -> None:
+        await queue.put({"type": "progress", **event})
+
+    runner.progress = on_progress
+
+    def line(obj: dict) -> str:
+        return json.dumps(obj, ensure_ascii=False, default=str) + "\n"
+
+    async def lines():
+        yield line({"type": "progress", "stage": "received"})
+        task = asyncio.ensure_future(run())
+        task.add_done_callback(lambda _: queue.put_nowait(None))
+        while (event := await queue.get()) is not None:
+            yield line(event)
+        try:
+            response = task.result()
+            status_code, body = response.status_code, json.loads(response.body)
+        except HTTPException as exc:
+            status_code, body = exc.status_code, {"detail": exc.detail}
+        except Exception:
+            status_code, body = 502, {"detail": "Sprawdzenie przerwane z powodu błędu technicznego."}
+        yield line({"type": "result", "status": status_code, "body": body})
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.post("/claim/stream", summary="Jak /claim, ale z postępem (NDJSON)", description=_STREAM_DOC)
+async def verify_claim_stream(
+    body: ClaimVerifyRequest,
+    runner: CheckRunner = Depends(get_runner),
+    settings: Settings = Depends(get_settings),
+) -> StreamingResponse:
+    text = validate_text(body.text, settings.max_text_length)
+    return _stream(runner, lambda: runner.verify_claim(text))
+
+
+@router.post("/url/stream", summary="Jak /url, ale z postępem (NDJSON)", description=_STREAM_DOC)
+async def verify_url_stream(
+    body: UrlVerifyRequest,
+    runner: CheckRunner = Depends(get_runner),
+    settings: Settings = Depends(get_settings),
+) -> StreamingResponse:
+    url = validate_public_url(body.url, settings.max_url_length)
+    return _stream(runner, lambda: runner.verify_url(url))
+
+
+@router.post("/image/stream", summary="Jak /image, ale z postępem (NDJSON)", description=_STREAM_DOC)
+async def verify_image_stream(
+    file: UploadFile = File(...),
+    runner: CheckRunner = Depends(get_runner),
+    settings: Settings = Depends(get_settings),
+) -> StreamingResponse:
+    data = await file.read(settings.max_image_size_bytes + 1)
+    mime = validate_image(data, settings.max_image_size_bytes)
+    filename = (file.filename or "image").replace("\\", "/").rsplit("/", 1)[-1][:128]
+    return _stream(runner, lambda: runner.verify_image(filename, data, mime))

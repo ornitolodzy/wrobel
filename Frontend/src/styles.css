@@ -161,6 +161,21 @@ input {
   border-radius: 28px;
 }
 
+/* Zdjęcie: miniatura z paska odlatuje w prawo do dymka i rośnie do dużego podglądu */
+::view-transition-group(wrobel-photo) {
+  overflow: hidden;
+  border-radius: 16px;
+  animation-duration: 520ms;
+}
+
+::view-transition-old(wrobel-photo),
+::view-transition-new(wrobel-photo) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation-duration: 180ms;
+}
+
 ::view-transition-old(wrobel-query),
 ::view-transition-new(wrobel-query) {
   width: 100%;

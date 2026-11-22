@@ -2,6 +2,8 @@
 
 - POST /verify      called by the API Gateway (LLM_SERVICE_URL); input already validated,
                     PII-masked and, for URLs/images, turned into text by PageScrapper / OCR.
+- POST /verify/stream  the same, as NDJSON: progress events ("found 3 claims", "claim 2/3 checked")
+                    while the check runs, then one {"type": "result"} line with the /verify body.
 - POST /ingest      called by PageScrapper for every new or changed document (RAG_INGEST_URL).
 - POST /ingest/sync backfill from the PageScrapper `documents` table (same Postgres).
 
@@ -10,14 +12,18 @@ The verdict is still decided only by runtime.verify() -> policy.py; this module 
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import json
 import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from prawdowid import progress
 from prawdowid.models import CheckResult, SourceRef, Verdict
 from prawdowid.runtime import load_parameters, verify
 
@@ -154,22 +160,76 @@ def to_gateway(result: CheckResult, max_sources: int | None) -> dict:
     return out
 
 
+EMPTY_INPUT = {"status": "needs_clarification", "claims": [], "limitations": [],
+               "clarification_question": "Brak treści do sprawdzenia. Wpisz twierdzenie, które mam zweryfikować."}
+
+
+def gateway_reply(result: CheckResult, max_sources: int | None) -> tuple[int, Any]:
+    """HTTP status + body of /verify for a finished check (also the last line of /verify/stream)."""
+    if result.status == "api_limit":
+        # 429 -> gateway status api_limit (technical status, not a verdict).
+        return 429, {"detail": result.answer}
+    if result.status == "error":
+        failed = next((s for s in result.trace if s.get("status") == "error"), {})
+        logger.warning("pipeline error in step %s: %s", failed.get("step"), failed.get("error"))
+        return 502, {"detail": {"answer": result.answer, "step": failed.get("step")}}
+    return 200, to_gateway(result, max_sources)
+
+
 @router.post("/verify", summary="Weryfikacja w kontrakcie API Gateway (LLM_SERVICE_URL)")
 async def verify_for_gateway(req: GatewayVerifyRequest) -> dict:
     text = text_for(req)
     if len(text) < 3:
-        return {"status": "needs_clarification", "claims": [], "limitations": [],
-                "clarification_question": "Brak treści do sprawdzenia. Wpisz twierdzenie, które mam zweryfikować."}
+        return EMPTY_INPUT
+    result = await run_in_threadpool(verify, text, "gateway", params_for(req))
+    code, body = gateway_reply(result, req.options.max_sources)
+    if code != 200:
+        raise HTTPException(status_code=code, detail=body["detail"])
+    return body
+
+
+def public_progress(event: dict) -> dict:
+    """Progress event in the gateway vocabulary (verdict labels as in /verify)."""
+    if event.get("stage") == "verdicts":
+        event = {**event, "items": [{**it, "verdict": VERDICTS.get(it.get("label"), "insufficient_evidence")}
+                                    for it in event.get("items", [])]}
+    return {"type": "progress", **event}
+
+
+@router.post("/verify/stream", summary="Jak /verify, ale strumień NDJSON: postęp sprawdzania, a na końcu wynik")
+async def verify_stream_for_gateway(req: GatewayVerifyRequest) -> StreamingResponse:
+    text = text_for(req)
     params = params_for(req)
-    result = await run_in_threadpool(verify, text, "gateway", params)
-    if result.status == "api_limit":
-        # 429 -> gateway status api_limit (technical status, not a verdict).
-        raise HTTPException(status_code=429, detail=result.answer)
-    if result.status == "error":
-        failed = next((s for s in result.trace if s.get("status") == "error"), {})
-        logger.warning("pipeline error in step %s: %s", failed.get("step"), failed.get("error"))
-        raise HTTPException(status_code=502, detail={"answer": result.answer, "step": failed.get("step")})
-    return to_gateway(result, req.options.max_sources)
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    def run() -> CheckResult:
+        progress.listen(lambda e: loop.call_soon_threadsafe(queue.put_nowait, public_progress(e)))
+        try:
+            return verify(text, "gateway", params)
+        finally:
+            progress.listen(None)
+
+    def line(obj: dict) -> str:
+        return json.dumps(obj, ensure_ascii=False, default=str) + "\n"
+
+    async def lines():
+        if len(text) < 3:
+            yield line({"type": "result", "status": 200, "body": EMPTY_INPUT})
+            return
+        task = asyncio.ensure_future(run_in_threadpool(run))
+        task.add_done_callback(lambda _: queue.put_nowait(None))
+        while (event := await queue.get()) is not None:
+            yield line(event)
+        try:
+            code, body = gateway_reply(task.result(), req.options.max_sources)
+        except Exception as e:  # unexpected crash: a technical status, never a verdict
+            logger.exception("pipeline crashed")
+            code, body = 502, {"detail": {"answer": f"Błąd techniczny: {type(e).__name__}"}}
+        yield line({"type": "result", "status": code, "body": body})
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @router.post("/ingest", summary="Przyjmuje dokument z PageScrapper (RAG_INGEST_URL): chunk + embed + zapis")

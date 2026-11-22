@@ -16,7 +16,13 @@ import { ChatThread } from './chat-thread/chat-thread';
 import { DiscordFab } from '../../layout/discord-fab/discord-fab';
 import { ConnectionStatus, RealtimeService } from '../../core/realtime/realtime.service';
 import { asUrl, fromGateway } from '../../core/gateway-results';
-import { BotMessage, ChatMessage, SearchResultsPayload } from '../../core/search.models';
+import { INITIAL_PROGRESS, applyProgress, readNdjson } from '../../core/check-progress';
+import {
+  BotMessage,
+  ChatMessage,
+  ProgressView,
+  SearchResultsPayload,
+} from '../../core/search.models';
 
 interface AttachedImage {
   blob: Blob;
@@ -83,6 +89,8 @@ export class Home {
   /** Docięte zdjęcie dołączone do następnego zapytania. */
   protected readonly image = signal<AttachedImage | null>(null);
   protected readonly dragging = signal(false);
+  /** Id dymka, do którego właśnie przelatuje zdjęcie z paska (nazwa View Transition tylko na ten czas). */
+  protected readonly photoFlight = signal<number | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly hint = signal<string | null>(null);
   protected readonly ONE_IMAGE_HINT = 'Możesz dodać tylko jedno zdjęcie. Usuń obecne, aby dodać inne.';
@@ -132,7 +140,20 @@ export class Home {
 
     // Kolejne pytanie w trakcie rozmowy — dopisz do wątku i przewiń w dół
     if (phase === 'chat') {
-      this.addExchange(q, img);
+      const add = () => {
+        this.addExchange(q, img);
+        if (img) this.photoFlight.set(this.nextId - 1); // id dymka użytkownika
+      };
+      // ze zdjęciem: miniatura z paska przelatuje do dymka i rośnie (View Transition)
+      // po przelocie zdjęcie ma pełną wysokość: przewiń jeszcze raz, żeby nie chowało się pod paskiem
+      if (img) {
+        this.morph(add, () => {
+          this.photoFlight.set(null);
+          this.scrollToBottom();
+        });
+      } else {
+        add();
+      }
       afterNextRender(() => this.scrollToBottom(), { injector: this.injector });
       return;
     }
@@ -143,10 +164,14 @@ export class Home {
     const delay = this.animationsEnabled() ? SLIDE_OUT_MS : 0;
     this.slideTimer = setTimeout(
       () =>
-        this.morph(() => {
-          this.addExchange(q, img);
-          this.phase.set('chat');
-        }),
+        this.morph(
+          () => {
+            this.addExchange(q, img);
+            if (img) this.photoFlight.set(this.nextId - 1);
+            this.phase.set('chat');
+          },
+          () => this.photoFlight.set(null),
+        ),
       delay,
     );
   }
@@ -250,7 +275,11 @@ export class Home {
     );
   }
 
-  /** Weryfikacja przez API Gateway: zdjęcie -> /verify/image, sam link -> /verify/url, tekst -> /verify/claim. */
+  /**
+   * Weryfikacja przez API Gateway: zdjęcie -> /verify/image, sam link -> /verify/url, tekst -> /verify/claim.
+   * Wersja /stream: w trakcie pracy przychodzą zdarzenia postępu (odczyt zdjęcia, lista wątków,
+   * kolejne sprawdzone wątki), dymek pokazuje je na bieżąco, a na końcu przychodzi zwykły wynik.
+   */
   private async sendSearch(query: string, img: AttachedImage | null): Promise<void> {
     let payload: SearchResultsPayload;
     try {
@@ -259,22 +288,35 @@ export class Home {
       if (img) {
         const form = new FormData();
         form.set('file', img.blob, 'image.png');
-        response = await fetch('/api/v1/verify/image', {
+        response = await fetch('/api/v1/verify/image/stream', {
           method: 'POST',
           headers: { 'X-Channel': 'web' },
           body: form,
         });
       } else {
-        response = await fetch(url ? '/api/v1/verify/url' : '/api/v1/verify/claim', {
+        response = await fetch(url ? '/api/v1/verify/url/stream' : '/api/v1/verify/claim/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Channel': 'web' },
           body: JSON.stringify(url ? { url } : { text: query }),
         });
       }
-      const body = await response.json().catch(() => ({}));
+      let status = response.status;
+      let body: any;
+      if (response.ok && response.headers.get('content-type')?.includes('ndjson')) {
+        let progress = INITIAL_PROGRESS;
+        const result = await readNdjson(response, (event) => {
+          progress = applyProgress(progress, event);
+          this.showProgress(query, progress);
+        });
+        if (!result) throw new Error('Połączenie przerwane przed wynikiem. Spróbuj ponownie.');
+        status = result.status;
+        body = result.body ?? {};
+      } else {
+        body = await response.json().catch(() => ({}));
+      }
       // 502/503 z gatewaya to wynik ze statusem error/api_limit: pokazujemy jego komunikat.
-      if (!response.ok && !body?.error?.message) {
-        throw new Error(typeof body?.detail === 'string' ? body.detail : `Błąd ${response.status}`);
+      if (status >= 400 && !body?.error?.message) {
+        throw new Error(typeof body?.detail === 'string' ? body.detail : `Błąd ${status}`);
       }
       payload = fromGateway(query, body);
     } catch (err) {
@@ -282,6 +324,15 @@ export class Home {
       payload = fromGateway(query, { error: { message } });
     }
     this.applyResults(payload, true);
+  }
+
+  /** Postęp w dymku bota, który jeszcze czeka na wynik tego pytania. */
+  private showProgress(query: string, progress: ProgressView): void {
+    this.messages.update((list) =>
+      list.map((m) =>
+        m.role === 'bot' && m.results === null && m.query === query ? { ...m, progress } : m,
+      ),
+    );
   }
 
   private scrollToBottom(): void {
@@ -343,18 +394,23 @@ export class Home {
    * z tym samym `view-transition-name` (logo, pasek -> dymek) między starą a nową pozycją.
    * Bez wsparcia API (lub przy prefers-reduced-motion) — zmiana natychmiastowa.
    */
-  private morph(update: () => void): void {
+  private morph(update: () => void, done?: () => void): void {
     if (typeof this.document.startViewTransition !== 'function' || !this.animationsEnabled()) {
       update();
+      done?.();
       return;
     }
-    this.document.startViewTransition(
+    const transition = this.document.startViewTransition(
       () =>
         new Promise<void>((resolve) => {
           update();
           afterNextRender(() => resolve(), { injector: this.injector });
         }),
-    );
+    ) as { finished?: Promise<void> } | undefined;
+    if (done) {
+      const finished = transition?.finished ?? Promise.resolve();
+      finished.then(done, done);
+    }
   }
 
   private animationsEnabled(): boolean {
