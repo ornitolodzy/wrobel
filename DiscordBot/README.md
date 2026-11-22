@@ -1,18 +1,5 @@
 # Wróbel — bot Discord
 
-> [!IMPORTANT]
-> **MUST HAVE po konfiguracji bota: podmień link w przycisku Discorda na frontendzie.**
->
-> Web UI ma w prawym dolnym rogu przycisk Discorda, który ma prowadzić do tego bota. Na razie wskazuje
-> placeholder `https://discord.com/`. Gdy bot ma już token i działa (kroki w sekcji „Konfiguracja aplikacji
-> na Discordzie”):
->
-> 1. Skopiuj link zaproszenia bota: wypisuje go `./start.sh`, jest też w
->    `docker compose logs discord-bot | grep "Invite link"`. Zamiast niego możesz dać zaproszenie na Wasz serwer z botem.
-> 2. Wklej go w `Frontend/src/app/core/links.ts` jako `DISCORD_BOT_URL` i usuń tam komentarz `TODO(discord-link)`.
-> 3. Przebuduj frontend: `docker compose up -d --build frontend` (w katalogu głównym monorepo).
-> 4. Usuń tę notkę stąd i z `Frontend/README.md`.
-
 Drugi kanał PRAWDOWID obok Web UI. Bot to **cienki adapter na API Gateway** (nagłówek `X-Channel: discord`):
 nie ma własnej logiki weryfikacji. Walidacja, maskowanie PII, audit log i werdykt są te same co w aplikacji webowej.
 
