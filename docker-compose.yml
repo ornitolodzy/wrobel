@@ -199,9 +199,28 @@ services:
 
   # ContextGraph (profil "graph", poza domyslnym startem): graf Neo4j zgodny z kontraktem pipeline'u
   # (VerificationPipeline/docs/neo4j-kontrakt.md) + zdarzenia z Bielika. make graph-up, make graph-sync.
+  # Seed grafu (db/neo4j-seed/neo4j.dump) wczytywany jednorazowo, tylko gdy wolumen neo4j-data jest pusty.
+  # Regeneracja z działającego grafu: make graph-seed-dump
+  neo4j-seed:
+    image: neo4j:5.26-community
+    profiles: ["graph"]
+    user: "7474:7474"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ -d /data/databases/neo4j ]; then echo "neo4j-data nie jest pusty: pomijam seed"; exit 0; fi
+        if [ ! -f /seed/neo4j.dump ]; then echo "brak db/neo4j-seed/neo4j.dump: pusty graf"; exit 0; fi
+        neo4j-admin database load neo4j --from-path=/seed
+    volumes:
+      - neo4j-data:/data
+      - ./db/neo4j-seed:/seed:ro
+
   neo4j:
     image: neo4j:5.26-community
     profiles: ["graph"]
+    depends_on:
+      neo4j-seed:
+        condition: service_completed_successfully
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-contextgraph}
       NEO4J_server_memory_heap_max__size: 1G

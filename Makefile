@@ -4,7 +4,7 @@ COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compos
 DC      := $(COMPOSE)
 S       ?=
 
-.PHONY: help up start down clean ps logs build config dev-backend dev-frontend seed-dump graph-up graph-sync \
+.PHONY: help up start down clean ps logs build config dev-backend dev-frontend seed-dump graph-up graph-seed-dump graph-sync \
         test test-gateway test-scrapper test-pipeline test-ocr test-graph test-discord test-frontend
 
 help: ## lista celów
@@ -49,6 +49,13 @@ seed-dump: ## zrzut korpusu z działającego Postgresa do db/seed (bez checks/au
 
 graph-up: ## ContextGraph + Neo4j (profil graph), API :8100, Browser :7474
 	$(DC) --profile graph up -d --build neo4j context-graph
+
+graph-seed-dump: ## zrzut grafu Neo4j do db/neo4j-seed/neo4j.dump (zatrzymuje neo4j na czas zrzutu)
+	$(DC) --profile graph stop context-graph neo4j
+	$(DC) --profile graph run --rm --no-deps -v "$(CURDIR)/db/neo4j-seed:/dumps" --entrypoint /bin/bash neo4j -c \
+	  'neo4j-admin database dump neo4j --to-path=/dumps --overwrite-destination=true && chown $(shell id -u):$(shell id -g) /dumps/neo4j.dump'
+	$(DC) --profile graph up -d neo4j context-graph
+	@ls -lh db/neo4j-seed/neo4j.dump
 
 graph-sync: ## dokumenty z PageScrappera :8002 do grafu :8100
 	cd ContextGraph && python scripts/sync_from_scraper.py --scraper http://127.0.0.1:8002 --graph http://127.0.0.1:8100

@@ -231,6 +231,12 @@ Przy pierwszym starcie (pusty wolumen `postgres-data`) Postgres wczytuje seed z 
 Seed nie nadpisuje istniejącej bazy. Żeby go wczytać ponownie, użyj `docker compose down -v`, a potem `up`.
 Aktualny stan bazy zapiszesz do seeda przez `make seed-dump`.
 
+Graf Neo4j (profil `graph`, `make graph-up`) ma osobny seed w `db/neo4j-seed/neo4j.dump`. Wczytuje go jednorazowy
+serwis `neo4j-seed`, tylko gdy wolumen `neo4j-data` jest pusty. Seed zawiera te same 253 dokumenty, 2562 fragmenty
+z embeddingami `bge-m3`, encje oraz pierwsze zdarzenia z Bielika. Więcej zdarzeń dodasz przez
+`POST :8100/events/extract`. Aktualny stan grafu zapiszesz przez `make graph-seed-dump`; na czas zrzutu Neo4j
+jest zatrzymywany. Wtedy `make graph-sync` jest potrzebny tylko dla dokumentów pobranych po utworzeniu seeda.
+
 Bez seeda korpus jest pusty. Scrapper pobiera źródła automatycznie co 6 godzin (`SCRAPE_INTERVAL_MINUTES=360`).
 Żeby pobrać je od razu, użyj klucza admina (domyślnie `change-me-admin`, ustawiony w `docker-compose.yml`):
 
