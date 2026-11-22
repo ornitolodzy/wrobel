@@ -70,7 +70,8 @@ def _footer(data: dict[str, Any]) -> str:
     return " · ".join(bits)
 
 
-def result_embed(data: dict[str, Any], asked: str | None = None) -> discord.Embed:
+def result_embed(data: dict[str, Any], asked: str | None = None, live_pending: bool = False,
+                 live_failed: str | None = None) -> discord.Embed:
     status = data.get("status")
     if status in ("api_limit", "error"):
         return problem_embed(
@@ -114,6 +115,11 @@ def result_embed(data: dict[str, Any], asked: str | None = None) -> discord.Embe
         e.add_field(name=name, value=value, inline=False)
         used += len(name) + len(value)
 
+    live = _live_field(data.get("live_search"), live_pending, live_failed)
+    if live and used + len(live[0]) + len(live[1]) < EMBED_BUDGET:
+        e.add_field(name=live[0], value=live[1], inline=False)
+        used += len(live[0]) + len(live[1])
+
     notes = list(dict.fromkeys(data.get("limitations") or []))
     if data.get("mock"):
         notes.insert(0, "Tryb testowy (MOCK) — to nie jest prawdziwe sprawdzenie.")
@@ -123,6 +129,27 @@ def result_embed(data: dict[str, Any], asked: str | None = None) -> discord.Embe
             e.add_field(name="Ograniczenia", value=value, inline=False)
     e.set_footer(text=_footer(data))
     return e
+
+
+def _live_field(info: dict[str, Any] | None, pending: bool, failed: str | None) -> tuple[str, str] | None:
+    """Live search in trusted sites (when the corpus had no confirmed data): in progress, its
+    result (message + pages found), or why it could not run."""
+    if pending:
+        return ("🔎 Wyszukiwanie na żywo",
+                "W bazie brak potwierdzonych danych. Szukam teraz w zaufanych źródłach "
+                "(to może potrwać do 1,5 min), a wynik podmienię w tej wiadomości…")
+    if failed:
+        return "🔎 Wyszukiwanie na żywo", cut(failed, 300)
+    if not info:
+        return None
+    lines = [cut(info.get("message"), 500)]
+    for d in (info.get("documents") or [])[:MAX_SOURCES]:
+        url = d.get("url") or ""
+        if url.startswith(("https://", "http://")):
+            title = cut(d.get("title") or url, 90).replace("[", "(").replace("]", ")")
+            lines.append(f"• [{title}]({url}) — {cut(d.get('publisher') or d.get('source_name'), 60)}")
+    name = "🔎 Sprawdzone na żywo" if info.get("improved") else "🔎 Wyszukiwanie na żywo"
+    return name, "\n".join(line for line in lines if line)[:1024] or "—"
 
 
 def problem_embed(title: str, description: str, data: dict[str, Any] | None = None) -> discord.Embed:

@@ -38,6 +38,14 @@ def classify(text: str) -> Request | None:
     return Request(kind="claim", text=text)
 
 
+def live_eligible(data: dict[str, Any]) -> bool:
+    """Same rule as the web UI (Frontend gateway-results.ts): a real, completed check without
+    confirmed data, not yet searched live. Keeps both channels giving the same answer."""
+    return (data.get("status") == "completed" and not data.get("mock") and not data.get("live_search")
+            and isinstance(data.get("check_id"), str)
+            and any(c.get("verdict") == "insufficient_evidence" for c in data.get("claims") or []))
+
+
 @dataclass
 class Result:
     """Gateway answer, or a technical problem described for the user (never a verdict)."""
@@ -73,6 +81,17 @@ class GatewayClient:
             return Result(ok=False, problem="Serwis weryfikacji jest chwilowo niedostępny.")
         return self._parse(resp)
 
+    async def live(self, check_id: str) -> Result:
+        """Live search in trusted sites + re-verification of an insufficient_evidence check
+        (POST /api/v1/verify/live), the same step the web UI starts automatically."""
+        try:
+            resp = await self.client.post("/api/v1/verify/live", json={"check_id": check_id})
+        except httpx.TimeoutException:
+            return Result(ok=False, problem="Wyszukiwanie na żywo trwało zbyt długo.")
+        except httpx.HTTPError:
+            return Result(ok=False, problem="Nie udało się teraz wyszukać na żywo.")
+        return self._parse(resp)
+
     @staticmethod
     def _parse(resp: httpx.Response) -> Result:
         try:
@@ -86,7 +105,7 @@ class GatewayClient:
         # Completed checks and technical statuses (api_limit 503, error 502) come as a CheckResponse.
         if isinstance(body, dict) and "check_id" in body:
             return Result(ok=True, data=body)
-        if resp.status_code in (400, 413, 415, 422):
+        if resp.status_code in (400, 404, 409, 413, 415, 422):
             detail = body.get("detail") if isinstance(body, dict) else None
             msg = detail if isinstance(detail, str) else "Nie udało się przyjąć tej treści do sprawdzenia."
             return Result(ok=False, problem=msg)

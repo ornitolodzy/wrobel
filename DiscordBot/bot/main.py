@@ -15,7 +15,9 @@ from __future__ import annotations
 import logging
 import re
 import sys
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -23,7 +25,8 @@ from discord.ext import tasks
 
 from bot.config import Settings
 from bot.format import help_embed, problem_embed, result_embed
-from bot.gateway import IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_TEXT_CHARS, GatewayClient, Request, classify
+from bot.gateway import (IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_TEXT_CHARS, GatewayClient, Request, classify,
+                         live_eligible)
 from bot.limits import UserLimiter
 
 log = logging.getLogger("wrobel.discord")
@@ -32,6 +35,14 @@ HELP_WORDS = {"", "pomoc", "help", "?", "start", "jak", "info"}
 NO_PINGS = discord.AllowedMentions.none()
 PERMISSIONS = discord.Permissions(view_channel=True, send_messages=True, send_messages_in_threads=True,
                                   embed_links=True, read_message_history=True)
+
+
+Show = Callable[[discord.Embed], Awaitable[Any]]
+
+
+async def edit_reply(interaction: discord.Interaction, embed: discord.Embed) -> None:
+    """Replaces the deferred "thinking…" reply; called again it updates the same message."""
+    await interaction.edit_original_response(embed=embed)
 
 
 def first_image(attachments: list[discord.Attachment]) -> discord.Attachment | None:
@@ -103,19 +114,35 @@ class WrobelBot(discord.Client):
         await self.wait_until_ready()
 
     # ------------------------------------------------------------------ core
-    async def check(self, user_id: int, req: Request, asked: str | None) -> discord.Embed:
+    async def check(self, user_id: int, req: Request, asked: str | None, show: Show) -> None:
+        """Verify and show the answer. Without confirmed data in the corpus the first answer says
+        a live search is running, and `show` is called again with the result (same message)."""
         wait = self.limiter.hit(user_id)
         if wait:
-            return problem_embed("Zwolnij trochę", f"Możesz wysłać {self.settings.user_limit_per_minute} "
-                                                   f"zapytań na minutę. Spróbuj ponownie za {wait} s.")
+            await show(problem_embed("Zwolnij trochę", f"Możesz wysłać {self.settings.user_limit_per_minute} "
+                                                       f"zapytań na minutę. Spróbuj ponownie za {wait} s."))
+            return
         assert self.gateway is not None
         result = await self.gateway.verify(req)
-        log.info("check kind=%s ok=%s status=%s", req.kind, result.ok,
-                 (result.data or {}).get("status"))
+        data = result.data or {}
+        log.info("check kind=%s ok=%s status=%s", req.kind, result.ok, data.get("status"))
         if not result.ok:
-            return problem_embed("Nie udało się sprawdzić",
-                                 f"{result.problem}\nTo problem techniczny, **nie ocena prawdziwości treści**.")
-        return result_embed(result.data or {}, asked=asked if req.kind == "claim" else None)
+            await show(problem_embed("Nie udało się sprawdzić",
+                                     f"{result.problem}\nTo problem techniczny, **nie ocena prawdziwości treści**."))
+            return
+        asked = asked if req.kind == "claim" else None
+        pending = live_eligible(data)
+        await show(result_embed(data, asked=asked, live_pending=pending))
+        if not pending:
+            return
+        live = await self.gateway.live(data["check_id"])
+        log.info("live search ok=%s status=%s improved=%s", live.ok, (live.data or {}).get("status"),
+                 ((live.data or {}).get("live_search") or {}).get("improved"))
+        if live.ok and (live.data or {}).get("live_search"):
+            await show(result_embed(live.data or {}, asked=asked))
+        else:
+            await show(result_embed(data, asked=asked,
+                                    live_failed=live.problem or "Nie udało się teraz wyszukać na żywo."))
 
     # ------------------------------------------------------------------ slash + context menu
     def _register_commands(self) -> None:
@@ -139,9 +166,10 @@ class WrobelBot(discord.Client):
                 return
             await interaction.response.defer(thinking=True, ephemeral=prywatnie)
             req = await request_from(tekst or "", [obraz] if obraz else [])
-            embed = (problem_embed("Nie mogę tego sprawdzić", req) if isinstance(req, str)
-                     else await bot.check(interaction.user.id, req, tekst))
-            await interaction.followup.send(embed=embed, ephemeral=prywatnie)
+            if isinstance(req, str):
+                await edit_reply(interaction, problem_embed("Nie mogę tego sprawdzić", req))
+            else:
+                await bot.check(interaction.user.id, req, tekst, lambda e: edit_reply(interaction, e))
 
         @app_commands.context_menu(name="Sprawdź w Wróblu")
         @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
@@ -153,9 +181,10 @@ class WrobelBot(discord.Client):
                     ephemeral=True)
                 return
             await interaction.response.defer(thinking=True)
-            embed = (problem_embed("Nie mogę tego sprawdzić", req) if isinstance(req, str)
-                     else await bot.check(interaction.user.id, req, message.content))
-            await interaction.followup.send(embed=embed)
+            if isinstance(req, str):
+                await edit_reply(interaction, problem_embed("Nie mogę tego sprawdzić", req))
+            else:
+                await bot.check(interaction.user.id, req, message.content, lambda e: edit_reply(interaction, e))
 
         self.tree.add_command(wrobel)
         self.tree.add_command(check_message)
@@ -199,9 +228,17 @@ class WrobelBot(discord.Client):
         if isinstance(req, str):
             await message.reply(embed=problem_embed("Nie mogę tego sprawdzić", req), mention_author=False)
             return
+        reply: discord.Message | None = None
+
+        async def show(embed: discord.Embed) -> None:
+            nonlocal reply
+            if reply is None:
+                reply = await message.reply(embed=embed, mention_author=False)
+            else:
+                await reply.edit(embed=embed)
+
         async with message.channel.typing():
-            embed = await self.check(message.author.id, req, text)
-        await message.reply(embed=embed, mention_author=False)
+            await self.check(message.author.id, req, text, show)
 
 
 def main() -> None:

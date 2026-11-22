@@ -202,7 +202,8 @@ services:
       DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
       GATEWAY_URL: http://api-gateway:8000
       USER_LIMIT_PER_MINUTE: ${DISCORD_USER_LIMIT_PER_MINUTE:-5}
-      REQUEST_TIMEOUT_SECONDS: "120"
+      # > DOWNSTREAM_TIMEOUT_SECONDS gatewaya (180 s): pełne sprawdzenie, potem wyszukiwanie na żywo
+      REQUEST_TIMEOUT_SECONDS: "200"
     depends_on:
       api-gateway:
         condition: service_healthy

@@ -149,3 +149,50 @@ async def test_gateway_down():
     res = await c.verify(Request("claim", "abc"))
     await c.close()
     assert not res.ok and "niedostępny" in res.problem
+
+
+# ---------------------------------------------------------------- live search (same rule as the web UI)
+from bot.gateway import live_eligible  # noqa: E402
+
+
+def test_live_eligible_only_for_real_insufficient_evidence():
+    assert live_eligible(check(claims=[claim("insufficient_evidence", sources=0)]))
+    assert not live_eligible(check(claims=[claim("false")]))
+    assert not live_eligible(check(claims=[claim("insufficient_evidence", sources=0)], mock=True))
+    assert not live_eligible(check(status="error", claims=[claim("insufficient_evidence", sources=0)]))
+    assert not live_eligible(check(claims=[claim("insufficient_evidence", sources=0)],
+                                   live_search={"message": "x", "previous_check_id": "p"}))
+
+
+def test_live_pending_and_failed_fields():
+    data = check(claims=[claim("insufficient_evidence", sources=0)])
+    pending = result_embed(data, asked="q", live_pending=True)
+    assert any("Szukam teraz" in f.value for f in pending.fields)
+    failed = result_embed(data, asked="q", live_failed="Nie udało się teraz wyszukać na żywo.")
+    assert any("Nie udało się" in f.value for f in failed.fields)
+    assert not any("🔎" in f.name for f in result_embed(data).fields)
+
+
+def test_live_result_lists_found_pages_with_safe_links():
+    info = {"previous_check_id": "p", "improved": True, "message": "Znaleziono 2 nowe strony.",
+            "documents": [{"url": "https://www.gov.pl/web/rcb/x", "title": "Alert [RCB]", "publisher": "RCB"},
+                          {"url": "javascript:alert(1)", "title": "zła"}]}
+    e = result_embed(check(claims=[claim("false")], live_search=info))
+    field = next(f for f in e.fields if "na żywo" in f.name)
+    assert field.name.startswith("🔎 Sprawdzone") and "https://www.gov.pl/web/rcb/x" in field.value
+    assert "javascript:" not in field.value and "(RCB)" in field.value
+    assert embed_size(e) <= 6000
+
+
+async def test_gateway_live_route_and_conflict_detail():
+    seen = []
+
+    def handler(request: httpx.Request):
+        seen.append((request.url.path, request.content))
+        return httpx.Response(409, json={"detail": "To sprawdzenie ma już werdykt."})
+
+    c = await _client(handler)
+    res = await c.live("abc")
+    await c.close()
+    assert seen == [("/api/v1/verify/live", b'{"check_id":"abc"}')]
+    assert not res.ok and res.problem == "To sprawdzenie ma już werdykt."
