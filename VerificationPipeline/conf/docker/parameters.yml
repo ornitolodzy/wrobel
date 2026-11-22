@@ -6,6 +6,12 @@
 retrieval:
   # Shared Postgres of the stack: corpus fed by PageScrapper (RAG_INGEST_URL -> /ingest).
   backend: postgres
+  # Calibrated on tests/eval/retrieval_cases_realistic.jsonl (88 posts/questions + 26 out-of-corpus,
+  # 11 of them from the same domains). Relevant source passes / negatives rejected:
+  #   0.30: 61% / 26 of 26   0.10: 69% / 25 of 26   0.05: 72% / 23 of 26 (2 more same-domain
+  #   fakes reach the LLM, which then answered "wprowadzające w błąd" instead of "brak dowodów").
+  # Recalibrate with `kedro run --pipeline eval --env docker` (threshold section) after corpus changes.
+  rerank_min: 0.10
 
 embeddings:
   # mock = deterministic word-hash vectors, no network. Switch to ollama + bge-m3 when a server

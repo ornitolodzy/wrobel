@@ -46,7 +46,15 @@ def extract_claims(norm_input: NormalizedInput, llm_params: dict) -> list[Claim]
     from prawdowid.llm.tasks import extract_claims_llm
 
     try:
-        return extract_claims_llm(text, llm_params)
+        claims = extract_claims_llm(text, llm_params)
+        # Small models sometimes return nothing for an emotional post that does carry a fact
+        # (eval: 26 of 88 realistic posts). A longer text then becomes one claim, classified by the
+        # rules (an opinion stays an opinion); greetings and short texts still get "doprecyzuj".
+        min_words = llm_params.get("fallback_min_words", 8)
+        if not claims and len(text.split()) >= min_words:
+            usage.record(role="claims", event="fallback_no_claims", words=len(text.split()))
+            return _rule_based(text)
+        return claims
     except (ApiLimitError, LLMRefusal):
         raise
     except LLMError as e:

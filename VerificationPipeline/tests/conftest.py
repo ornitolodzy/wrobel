@@ -4,9 +4,9 @@ import os
 os.environ["PRAWDOWID_ENV"] = "test"
 # ...and never on deployment knobs from a developer's .env: LiteLLM calls load_dotenv() on import,
 # which would switch every role to a real model. Set (empty) values win over load_dotenv.
-for _var in ("LLM_PROVIDER", "LLM_MODEL", "LLM_API_BASE", "RETRIEVAL_BACKEND", "EMBEDDINGS_PROVIDER",
+for _var in ("LLM_PROVIDER", "LLM_MODEL", "LLM_API_BASE", "LLM_TEMPERATURE", "LLM_JSON_MODE", "RETRIEVAL_BACKEND", "EMBEDDINGS_PROVIDER",
              "EMBEDDINGS_MODEL", "EMBEDDINGS_API_BASE", "RERANKER_ENABLED", "RERANKER_PROVIDER",
-             "RERANKER_API_BASE", "RERANKER_FALLBACK"):
+             "RERANKER_API_BASE", "RERANKER_FALLBACK", "RETRIEVAL_TOP_K", "MAX_CONTEXT_CHARS"):
     os.environ[f"PRAWDOWID_{_var}"] = ""
 # ...and never download models (Hugging Face) during tests.
 os.environ["HF_HUB_OFFLINE"] = "1"

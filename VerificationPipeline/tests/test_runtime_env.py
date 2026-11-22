@@ -7,7 +7,7 @@ from prawdowid.runtime import _env_overrides
 _VARS = ("PRAWDOWID_EMBEDDINGS_PROVIDER", "PRAWDOWID_EMBEDDINGS_MODEL", "PRAWDOWID_EMBEDDINGS_API_BASE",
          "PRAWDOWID_RERANKER_ENABLED", "PRAWDOWID_RERANKER_PROVIDER", "PRAWDOWID_RERANKER_API_BASE",
          "PRAWDOWID_RERANKER_FALLBACK", "PRAWDOWID_LLM_PROVIDER", "PRAWDOWID_LLM_MODEL",
-         "PRAWDOWID_LLM_API_BASE", "PRAWDOWID_RETRIEVAL_BACKEND")
+         "PRAWDOWID_LLM_API_BASE", "PRAWDOWID_RETRIEVAL_BACKEND", "PRAWDOWID_LLM_TEMPERATURE")
 
 
 def _params():
@@ -49,3 +49,8 @@ def test_remote_reranker_from_env(monkeypatch):
     rr = _env_overrides(_params())["reranker"]
     assert rr == {"enabled": False, "model": "BAAI/bge-reranker-v2-m3", "provider": "remote",
                   "api_base": "http://host.docker.internal:8081", "fallback": "local"}
+
+
+def test_llm_temperature_from_env(monkeypatch):
+    monkeypatch.setenv("PRAWDOWID_LLM_TEMPERATURE", "0")
+    assert _env_overrides(_params())["llm"]["roles"]["claims"]["temperature"] == 0.0

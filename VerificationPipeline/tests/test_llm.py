@@ -95,7 +95,7 @@ def test_llm_calls_recorded_in_trace(params):
     r = run(params, claims=CLAIMS, stance=stance("irrelevant", "x"), explain=explain(("x", [1])))
     calls = {t["step"]: t["calls"] for t in r.trace if "calls" in t}
     assert calls["extract_claims"][0]["model"] == "fake-model"
-    assert calls["extract_claims"][0]["prompt_version"] == "0.3"
+    assert calls["extract_claims"][0]["prompt_version"] == "0.4"
     assert "judge_stance" in calls
 
 
@@ -197,3 +197,20 @@ def test_opinion_lead():
     r = verify("Moim zdaniem polityka MSZ jest najgorsza.")
     assert r.verdicts[0].lead == "Niemożliwe do weryfikacji."
     assert r.answer.startswith("Niemożliwe do weryfikacji.")
+
+
+def test_no_claims_from_long_post_falls_back_to_whole_text(params):
+    """Small models sometimes return no claims for an emotional post that does carry a fact."""
+    from prawdowid.llm import usage
+    from prawdowid.pipelines.verification.nodes.claims import extract_claims
+    from prawdowid.pipelines.verification.nodes.normalize import normalize
+
+    registry.override("fake", MockProvider(script(claims={"claims": []}), model="fake-model"))
+    usage.start()
+    post = "Wow! Wszyscy mówią, że policjanci pod Trybunałem dostają 3000 zł za każdą dobę służby!"
+    claims = extract_claims(normalize(post, "web"), params["llm"])
+    assert len(claims) == 1 and claims[0].type == "factual"
+    assert any(c.get("event") == "fallback_no_claims" for c in usage.drain())
+    # a greeting stays without claims (-> "doprecyzuj")
+    assert extract_claims(normalize("Hej, co słychać?", "web"), params["llm"]) == []
+    registry.clear_overrides()

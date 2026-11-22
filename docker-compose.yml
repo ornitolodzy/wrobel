@@ -155,6 +155,8 @@ services:
       # Male modele lokalne (Bielik w Ollamie: okno 4096 tokenow): przyklad JSON zamiast schematu
       # i mniejszy kontekst. Puste = conf/.
       PRAWDOWID_LLM_JSON_MODE: ${PRAWDOWID_LLM_JSON_MODE:-}
+      # 0 dla Bielika/Ollamy (domyslnie 0.8: ten sam wpis daje rozne twierdzenia). Puste dla Claude.
+      PRAWDOWID_LLM_TEMPERATURE: ${PRAWDOWID_LLM_TEMPERATURE:-}
       PRAWDOWID_RETRIEVAL_TOP_K: ${PRAWDOWID_RETRIEVAL_TOP_K:-}
       PRAWDOWID_MAX_CONTEXT_CHARS: ${PRAWDOWID_MAX_CONTEXT_CHARS:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

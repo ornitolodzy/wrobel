@@ -101,3 +101,14 @@
 {"id": "n012", "kind": "spoza_korpusu_bielik", "input": "Aktor Maciej Stuhr zdobył Złote Lwy na Festiwalu Polskich Filmów Fabularnych w Gdyni za rolę pierwszoplanową w filmie \"Cicha noc\"", "relevant_urls": []}
 {"id": "n013", "kind": "spoza_korpusu_bielik", "input": "Pisarka Olga Tokarczuk została uhonorowana prestiżową nagrodą literacką im. Jana Parandowskiego za całokształt twórczości", "relevant_urls": []}
 {"id": "n014", "kind": "spoza_korpusu_bielik", "input": "Modelka i aktywistka Joanna Krupa założyła fundację \"Zielone Serce\" wspierającą ochronę środowiska naturalnego w Polsce", "relevant_urls": []}
+{"id": "h01", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "Alert RCB: w Olsztynie woda z wodociągu jest skażona bakteriami coli, nie pijcie jej!", "relevant_urls": []}
+{"id": "h02", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "Policja w Opolu zatrzymała gang, który kradł katalizatory z samochodów na parkingach.", "relevant_urls": []}
+{"id": "h03", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "MON ogłosiło, że od stycznia przywraca obowiązkową zasadniczą służbę wojskową dla 18-latków.", "relevant_urls": []}
+{"id": "h04", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "CERT Polska ostrzega przed luką w aplikacji mObywatel, przez którą wyciekły dane milionów osób.", "relevant_urls": []}
+{"id": "h05", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "MSZ ewakuuje wszystkich Polaków z Wenezueli specjalnym samolotem rządowym.", "relevant_urls": []}
+{"id": "h06", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "Słyszeliście? Na lotnisku w Pyrzowicach zestrzelono rosyjskiego drona nad pasem startowym.", "relevant_urls": []}
+{"id": "h07", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "Demagog ujawnił, że minister zdrowia ukrywał raport o skażonych lekach na nadciśnienie.", "relevant_urls": []}
+{"id": "h08", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "Podobno w Bydgoszczy policja użyła gazu łzawiącego wobec rolników protestujących przed urzędem wojewódzkim.", "relevant_urls": []}
+{"id": "h09", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "Rosyjscy hakerzy zablokowali system biletowy PKP Intercity na cały weekend.", "relevant_urls": []}
+{"id": "h11", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "Ukraińscy żołnierze ćwiczą na poligonie w Drawsku Pomorskim bez zgody polskiego rządu.", "relevant_urls": []}
+{"id": "h12", "kind": "spoza_korpusu_ta_sama_dziedzina", "input": "Żandarmeria Wojskowa zatrzymała oficera, który sprzedawał plany jednostki w Orzyszu.", "relevant_urls": []}

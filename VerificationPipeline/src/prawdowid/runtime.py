@@ -52,6 +52,9 @@ def _env_overrides(params: dict) -> dict:
       PRAWDOWID_LLM_MODEL     LiteLLM model string           (all roles)
       PRAWDOWID_LLM_API_BASE  e.g. vLLM/Ollama endpoint for Bielik
       PRAWDOWID_LLM_JSON_MODE auto | schema | object | example (all roles; example for small local models)
+      PRAWDOWID_LLM_TEMPERATURE  e.g. 0 for Bielik/Ollama (all roles). Unset = provider default, which
+                              for Ollama is 0.8: the same post then yields different claims per run.
+                              Leave unset for current Claude models (they reject temperature).
       PRAWDOWID_RETRIEVAL_BACKEND  mock | postgres | neo4j
       PRAWDOWID_EMBEDDINGS_PROVIDER  mock | ollama
       PRAWDOWID_EMBEDDINGS_MODEL     e.g. bge-m3 (corpus and queries must use the same one)
@@ -68,7 +71,8 @@ def _env_overrides(params: dict) -> dict:
     model = os.environ.get("PRAWDOWID_LLM_MODEL", "").strip()
     api_base = os.environ.get("PRAWDOWID_LLM_API_BASE", "").strip()
     json_mode = os.environ.get("PRAWDOWID_LLM_JSON_MODE", "").strip()
-    if provider or model or api_base or json_mode:
+    temperature = os.environ.get("PRAWDOWID_LLM_TEMPERATURE", "").strip()
+    if provider or model or api_base or json_mode or temperature:
         roles = params["llm"]["roles"]
         for role, cfg in roles.items():
             cfg = dict(cfg)
@@ -80,6 +84,8 @@ def _env_overrides(params: dict) -> dict:
                 cfg["api_base"] = api_base
             if json_mode:
                 cfg["json_mode"] = json_mode
+            if temperature:
+                cfg["temperature"] = float(temperature)
             roles[role] = cfg
     if backend := os.environ.get("PRAWDOWID_RETRIEVAL_BACKEND", "").strip():
         params["retrieval"]["backend"] = backend
