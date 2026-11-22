@@ -43,7 +43,10 @@
                 <app-verdict-tag [verdict]="r.verdict" />
               }
               @if (r.sources?.length || r.url === '#') {
-                <h3 class="claim">{{ r.title }}</h3>
+                <!-- Jedno twierdzenie: nie powtarzamy pytania użytkownika. Kilka: nagłówek mówi, którego dotyczy werdykt -->
+                @if (list.length > 1 || !r.verdict) {
+                  <h3 class="claim">{{ r.title }}</h3>
+                }
               } @else {
                 <a [href]="r.url" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
               }
