@@ -1,4 +1,10 @@
-import { SearchResult, SearchResultsPayload, SourceLink, Verdict } from './search.models';
+import {
+  LiveSearchView,
+  SearchResult,
+  SearchResultsPayload,
+  SourceLink,
+  Verdict,
+} from './search.models';
 
 /** Werdykty API Gateway (CheckResponse.claims[].verdict) -> tag w dymku bota. */
 const VERDICTS: Record<string, Verdict> = {
@@ -44,7 +50,30 @@ export function fromGateway(query: string, body: any): SearchResultsPayload {
   }
   // Jedno twierdzenie: werdykt na górze dymka. Kilka: tag przy każdym twierdzeniu.
   const verdict = results.length === 1 ? results[0].verdict : undefined;
-  return { query, results, verdict };
+  const liveEligible =
+    body?.status === 'completed' &&
+    !body?.mock &&
+    !body?.live_search &&
+    typeof body?.check_id === 'string' &&
+    claims.some((c) => c?.verdict === 'insufficient_evidence');
+  return {
+    query,
+    results,
+    verdict,
+    checkId: typeof body?.check_id === 'string' ? body.check_id : undefined,
+    liveEligible,
+    live: body?.live_search ? toLive(body.live_search) : undefined,
+  };
+}
+
+/** CheckResponse.live_search -> notka pod wynikiem. */
+function toLive(raw: any): LiveSearchView {
+  return {
+    state: 'done',
+    message: typeof raw?.message === 'string' ? raw.message : undefined,
+    documents: toSources(raw?.documents),
+    improved: !!raw?.improved,
+  };
 }
 
 /** Same zapytanie będące linkiem -> /verify/url (scrapper pobiera stronę). */

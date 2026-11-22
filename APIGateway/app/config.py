@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     image_recognition_url: str = ""
     downstream_timeout_seconds: float = 30.0
     mock_mode: bool = False
+    # Wyszukiwanie na żywo (PageScrapper /live-search), gdy w bazie brak potwierdzonych danych
+    live_search_enabled: bool = True
+    live_search_timeout_seconds: float = 90.0
+    live_search_max_documents: int = 5
 
     llm_provider: str = "mistral"
     llm_model: str = "mistral-large-latest"

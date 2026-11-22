@@ -1,4 +1,4 @@
-from app.sources import euvsdisinfo_mcp, file_import, google_factcheck, govpl, html_list, odyseusz, rss, sejm_eli
+from app.sources import euvsdisinfo_mcp, file_import, live_only, google_factcheck, govpl, html_list, odyseusz, rss, sejm_eli
 
 ADAPTERS = {
     "govpl_list": govpl.collect,
@@ -9,4 +9,5 @@ ADAPTERS = {
     "google_factcheck": google_factcheck.collect,
     "euvsdisinfo_mcp": euvsdisinfo_mcp.collect,
     "file_import": file_import.collect,
+    "live_only": live_only.collect,
 }

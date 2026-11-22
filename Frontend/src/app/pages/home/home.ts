@@ -206,9 +206,47 @@ export class Home {
         results: payload.results,
         verdict: payload.verdict ?? null,
         answeredAt: new Date(),
+        checkId: payload.checkId,
+        live: payload.liveEligible ? { state: 'searching' } : payload.live,
       };
       return next;
     });
+    if (payload.liveEligible && payload.checkId) {
+      void this.runLiveSearch(payload.checkId, payload.query);
+    }
+  }
+
+  /**
+   * W bazie brak potwierdzonych danych: gateway prosi scraper o wyszukanie na żywo w zaufanych
+   * witrynach i weryfikuje jeszcze raz. Dymek pokazuje pierwszy wynik, a po chwili go podmienia.
+   */
+  private async runLiveSearch(checkId: string, query: string): Promise<void> {
+    let update: Partial<BotMessage>;
+    try {
+      const response = await fetch('/api/v1/verify/live', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Channel': 'web' },
+        body: JSON.stringify({ check_id: checkId }),
+      });
+      const body = await response.json().catch(() => ({}));
+      const payload = fromGateway(query, body);
+      if (!payload.live) throw new Error();
+      update =
+        body.status === 'completed'
+          ? {
+              results: payload.results,
+              verdict: payload.verdict ?? null,
+              checkId: payload.checkId,
+              live: payload.live,
+              answeredAt: new Date(),
+            }
+          : { live: { ...payload.live, state: 'failed' } };
+    } catch {
+      update = { live: { state: 'failed', message: 'Nie udało się wyszukać na żywo.' } };
+    }
+    this.messages.update((list) =>
+      list.map((m) => (m.role === 'bot' && m.checkId === checkId ? { ...m, ...update } : m)),
+    );
   }
 
   /** Weryfikacja przez API Gateway: zdjęcie -> /verify/image, sam link -> /verify/url, tekst -> /verify/claim. */

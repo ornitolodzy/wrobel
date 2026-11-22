@@ -1,0 +1,43 @@
+sources:
+  - id: demagog-fake-news
+    name: Demagog - fake news
+    publisher: Stowarzyszenie Demagog
+    source_type: fact_check
+    adapter: rss
+    url: https://demagog.org.pl/fake_news/feed/
+    live_search:
+      kind: wp_rest
+      url: https://demagog.org.pl
+
+  - id: govpl-wyszukiwarka
+    name: Gov.pl - wyszukiwarka
+    publisher: Portal Gov.pl
+    source_type: official
+    adapter: live_only
+    url: https://www.gov.pl/web/gov/szukaj
+    live_search:
+      kind: rendered
+      url: https://www.gov.pl/web/gov/szukaj?query={query}
+      link_pattern: '^https://www\.gov\.pl/web/[^/]+/[^/?#]+$'
+      exclude_pattern: '^https://www\.gov\.pl/web/gov/'
+
+  - id: cert-polska
+    name: CERT Polska
+    publisher: CERT Polska
+    source_type: official
+    adapter: rss
+    url: https://cert.pl/feed/
+    live_search:
+      kind: html
+      url: https://cert.pl/?s={query}
+      link_pattern: '^https://cert\.pl/posts/'
+
+  - id: blocked-site
+    name: Zablokowana witryna
+    publisher: Ktoś
+    source_type: fact_check
+    adapter: rss
+    url: https://blocked.example.com/feed/
+    live_search:
+      kind: wp_rest
+      url: https://blocked.example.com

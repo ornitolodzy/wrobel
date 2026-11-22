@@ -72,6 +72,10 @@ sources:
     max_items: 30
     license: Treści CERT Polska / NASK - używamy do wyszukiwania i cytowania fragmentów z linkiem do źródła
     description: Ostrzeżenia o zagrożeniach w sieci, kampaniach phishingowych i podatnościach
+    live_search:
+      kind: html
+      url: https://cert.pl/?s={query}
+      link_pattern: '^https://cert\.pl/posts/\d{4}/\d{2}/[^/?#]+/?$'
 
   - id: isap-dziennik-ustaw
     name: ISAP - Dziennik Ustaw (API ELI Sejmu)
@@ -97,6 +101,9 @@ sources:
     options:
       drop_lines_starting_with:
         - Obalamy fałszywe informacje pojawiające się w mediach społecznościowych
+    live_search:
+      kind: wp_rest
+      url: https://demagog.org.pl
 
   - id: konkret24
     name: Konkret24 - weryfikacje
@@ -119,6 +126,9 @@ sources:
     description: Analizy i weryfikacje dezinformacji (bez wpisów blogowych i ogłoszeń o szkoleniach)
     options:
       exclude_categories: [Blog, Szkolenie, Warsztaty]
+    live_search:
+      kind: wp_rest
+      url: https://fakenews.pl
 
   - id: euvsdisinfo-artykuly
     name: EUvsDisinfo - analizy
@@ -131,6 +141,26 @@ sources:
     description: Analizy rosyjskich operacji dezinformacyjnych (po angielsku)
     options:
       language: en
+    live_search:
+      kind: wp_rest
+      url: https://euvsdisinfo.eu
+      max_results: 3
+
+  - id: govpl-wyszukiwarka
+    name: Gov.pl - wyszukiwarka (tylko na żywo)
+    publisher: Portal Gov.pl (administracja rządowa)
+    source_type: official
+    adapter: live_only
+    url: https://www.gov.pl/web/gov/szukaj
+    license: Materiały urzędowe (art. 4 ustawy o prawie autorskim), informacja publiczna
+    description: >-
+      Wyszukiwarka całego portalu gov.pl (ministerstwa, urzędy, placówki). Nie jest scrapowana
+      planowo; używana tylko przy wyszukiwaniu na żywo, gdy w bazie brak potwierdzonych danych.
+    live_search:
+      kind: rendered
+      url: https://www.gov.pl/web/gov/szukaj?query={query}
+      link_pattern: '^https://www\.gov\.pl/web/[^/]+/[^/?#]+$'
+      exclude_pattern: '^https://www\.gov\.pl/web/(gov|premier/sklad-rady-ministrow)/'
 
   - id: google-factcheck
     name: Google Fact Check Tools API

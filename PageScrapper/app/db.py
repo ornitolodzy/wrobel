@@ -115,6 +115,13 @@ class Database:
             await s.commit()
             return ("new" if existing is None else "updated"), target
 
+    async def existing_urls(self, urls: list[str]) -> set[str]:
+        if not urls:
+            return set()
+        async with self.sessionmaker() as session:
+            rows = await session.execute(select(Document.url).where(Document.url.in_(urls)))
+            return set(rows.scalars())
+
     async def known_urls(self, source_id: str) -> set[str]:
         async with self.sessionmaker() as s:
             rows = await s.execute(select(Document.url).where(Document.source_id == source_id))
